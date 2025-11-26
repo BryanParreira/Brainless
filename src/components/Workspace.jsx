@@ -1,96 +1,215 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { useLumina } from '../context/LuminaContext';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm'; 
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { ArrowUp, Bot, User, StopCircle, Download, Check, Info, Code2, Eye, Sparkles, Layout, Globe, Bug, Zap, BookOpen, Terminal, GraduationCap, BrainCircuit, FileText, ShieldAlert, PenTool, Copy } from 'lucide-react';
+import { ArrowUp, Bot, User, StopCircle, Download, Check, Info, Code2, Eye, Sparkles, Layout, Globe, Bug, Zap, BookOpen, Terminal, GraduationCap, BrainCircuit, FileText, ShieldAlert, PenTool, Copy, Wifi, WifiOff } from 'lucide-react';
 import mermaid from 'mermaid'; 
 import clsx from 'clsx'; 
 
 mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose', fontFamily: 'Inter' });
 
+// Command registry for cleaner command parsing
+const COMMAND_REGISTRY = {
+  '/explain_simple': "Explain the current context/code to me as if I am a beginner student. Use analogies, simple language, and bullet points.",
+  '/quiz': "Create a short, interactive quiz based on the uploaded files. Ask me 3 multiple-choice questions.",
+  '/study': "Create a comprehensive study guide for the uploaded materials.",
+  '/outline': "Create a detailed essay outline based on the uploaded materials.",
+  '/review': "Perform a Senior Code Review on this file. Look for logic errors, performance bottlenecks, and style inconsistencies.",
+  '/audit': "Perform a Security Audit on this code. Look for XSS, SQL Injection, and sensitive data exposure.",
+  '/test': "Generate a complete Unit Test suite for this code.",
+  '/refactor': "Refactor this code to be cleaner, DRY, and more efficient."
+};
+
 const LivePreview = ({ code }) => (
-  <div className="w-full h-96 bg-white rounded-b-xl overflow-hidden border-t border-white/10 relative group"><div className="absolute top-3 right-3 bg-black/80 text-white text-[10px] px-2 py-1 rounded-md backdrop-blur opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 font-medium">Live Preview</div><iframe srcDoc={code} className="w-full h-full border-none" sandbox="allow-scripts allow-modals" title="Live Preview" /></div>
+  <div className="w-full h-96 bg-white rounded-b-xl overflow-hidden border-t border-white/10 relative group">
+    <div className="absolute top-3 right-3 bg-black/80 text-white text-[10px] px-2 py-1 rounded-md backdrop-blur opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 font-medium">Live Preview</div>
+    <iframe srcDoc={code} className="w-full h-full border-none" sandbox="allow-scripts allow-modals" title="Live Preview" />
+  </div>
 );
 
 const CodeBlock = ({ language, children }) => {
   const [isSaved, setIsSaved] = useState(false);
   const [mode, setMode] = useState('code'); 
   const canPreview = language === 'html' || language === 'svg';
-  const handleSave = async () => { if (window.lumina) { const ext = language === 'javascript' ? 'js' : language === 'python' ? 'py' : 'txt'; const success = await window.lumina.saveGeneratedFile(children, `code.${ext}`); if (success) { setIsSaved(true); setTimeout(() => setIsSaved(false), 2000); } } };
+  
+  const handleSave = useCallback(async () => { 
+    if (window.lumina) { 
+      const ext = language === 'javascript' ? 'js' : language === 'python' ? 'py' : 'txt'; 
+      const success = await window.lumina.saveGeneratedFile(children, `code.${ext}`); 
+      if (success) { 
+        setIsSaved(true); 
+        setTimeout(() => setIsSaved(false), 2000); 
+      } 
+    } 
+  }, [children, language]);
+
   if (language === 'mermaid') {
-     const ref = useRef(null); const [svg, setSvg] = useState('');
-     useEffect(() => { if (children && ref.current) { const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`; try { mermaid.render(id, children).then(({ svg }) => setSvg(svg)).catch(e => console.error(e)); } catch(e) {} } }, [children]);
-     return <div ref={ref} className="my-6 p-6 bg-[#050505] border border-white/5 rounded-2xl flex justify-center overflow-x-auto shadow-inner" dangerouslySetInnerHTML={{ __html: svg }} />;
+    const ref = useRef(null); 
+    const [svg, setSvg] = useState('');
+    const id = useMemo(() => `mermaid-${Math.random().toString(36).substr(2, 9)}`, []);
+    
+    useEffect(() => { 
+      if (children && ref.current) { 
+        try { 
+          mermaid.render(id, children).then(({ svg }) => setSvg(svg)).catch(e => console.error(e)); 
+        } catch(e) {} 
+      } 
+    }, [children, id]);
+    
+    return <div ref={ref} className="my-6 p-6 bg-[#050505] border border-white/5 rounded-2xl flex justify-center overflow-x-auto shadow-inner" dangerouslySetInnerHTML={{ __html: svg }} />;
   }
+
   return (
     <div className="rounded-2xl overflow-hidden border border-white/10 my-6 bg-[#080808] shadow-2xl ring-1 ring-white/5">
       <div className="bg-[#111] px-4 py-2.5 text-[10px] text-gray-400 font-mono border-b border-white/5 flex justify-between items-center">
-        <div className="flex items-center gap-3"><span className="uppercase tracking-wider font-bold text-gray-500">{language}</span>{canPreview && (<div className="flex bg-black/50 rounded-lg p-0.5 border border-white/5"><button onClick={()=>setMode('code')} className={clsx("p-1.5 rounded-md transition-all", mode==='code' ? 'bg-white/10 text-white' : 'hover:text-white')} title="Code"><Code2 size={12}/></button><button onClick={()=>setMode('preview')} className={clsx("p-1.5 rounded-md transition-all", mode==='preview' ? 'bg-indigo-500/20 text-indigo-300' : 'hover:text-white')} title="Preview"><Eye size={12}/></button></div>)}</div>
-        <button onClick={handleSave} className="flex items-center gap-1.5 hover:text-white transition-colors bg-white/5 px-3 py-1 rounded-lg hover:bg-white/10 font-medium">{isSaved ? <Check size={12} className="text-emerald-500" /> : <Download size={12} />} {isSaved ? "Saved" : "Save"}</button>
+        <div className="flex items-center gap-3">
+          <span className="uppercase tracking-wider font-bold text-gray-500">{language}</span>
+          {canPreview && (
+            <div className="flex bg-black/50 rounded-lg p-0.5 border border-white/5">
+              <button 
+                onClick={() => setMode('code')} 
+                className={clsx("p-1.5 rounded-md transition-all", mode === 'code' ? 'bg-white/10 text-white' : 'hover:text-white')} 
+                title="Code"
+                aria-label="Show code"
+              >
+                <Code2 size={12} />
+              </button>
+              <button 
+                onClick={() => setMode('preview')} 
+                className={clsx("p-1.5 rounded-md transition-all", mode === 'preview' ? 'bg-indigo-500/20 text-indigo-300' : 'hover:text-white')} 
+                title="Preview"
+                aria-label="Show preview"
+              >
+                <Eye size={12} />
+              </button>
+            </div>
+          )}
+        </div>
+        <button 
+          onClick={handleSave} 
+          className="flex items-center gap-1.5 hover:text-white transition-colors bg-white/5 px-3 py-1 rounded-lg hover:bg-white/10 font-medium"
+          aria-label={isSaved ? "Code saved" : "Save code"}
+        >
+          {isSaved ? <Check size={12} className="text-emerald-500" /> : <Download size={12} />} 
+          {isSaved ? "Saved" : "Save"}
+        </button>
       </div>
-      {mode === 'code' ? <SyntaxHighlighter children={String(children).replace(/\n$/, '')} style={vscDarkPlus} language={language} PreTag="div" customStyle={{ margin: 0, background: 'transparent', fontSize: '13px', padding: '1.5rem', lineHeight: '1.6' }} /> : <LivePreview code={children} />}
+      {mode === 'code' ? (
+        <SyntaxHighlighter 
+          children={String(children).replace(/\n$/, '')} 
+          style={vscDarkPlus} 
+          language={language} 
+          PreTag="div" 
+          customStyle={{ margin: 0, background: 'transparent', fontSize: '13px', padding: '1.5rem', lineHeight: '1.6' }} 
+        />
+      ) : (
+        <LivePreview code={children} />
+      )}
     </div>
   );
 };
 
-const Callout = ({ children, theme }) => (<div className={`my-6 border-l-2 ${theme.primaryBorder} ${theme.softBg} p-5 rounded-r-2xl text-gray-300 text-sm flex gap-4 shadow-sm`}><Info size={20} className={`${theme.accentText} shrink-0 mt-0.5`} /><div className="prose prose-invert prose-sm max-w-none leading-relaxed">{children}</div></div>);
+const Callout = ({ children, theme }) => (
+  <div className={`my-6 border-l-2 ${theme.primaryBorder} ${theme.softBg} p-5 rounded-r-2xl text-gray-300 text-sm flex gap-4 shadow-sm`}>
+    <Info size={20} className={`${theme.accentText} shrink-0 mt-0.5`} />
+    <div className="prose prose-invert prose-sm max-w-none leading-relaxed">{children}</div>
+  </div>
+);
 
-const MessageBubble = ({ msg, theme, fontSize, isStreaming }) => {
-  // Aggressive cleanup of thought tags
-  let mainContent = msg.content.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim();
-  mainContent = mainContent.replace(/<thinking>[\s\S]*$/gi, ''); // Hide partial streams
-  mainContent = mainContent.replace(/<mermaid>/g, '\n```mermaid\n').replace(/<\/mermaid>/g, '\n```\n');
+// Memoized message bubble to prevent unnecessary re-renders
+const MessageBubble = React.memo(({ msg, theme, fontSize, isStreaming }) => {
+  // Clean content once and memoize
+  const mainContent = useMemo(() => {
+    let content = msg.content.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim();
+    content = content.replace(/<thinking>[\s\S]*$/gi, '');
+    content = content.replace(/<mermaid>/g, '\n```mermaid\n').replace(/<\/mermaid>/g, '\n```\n');
+    return content;
+  }, [msg.content]);
   
   const isUser = msg.role === 'user';
-  // Don't show empty bubbles (waiting state handled by parent)
-  if (!mainContent && !isStreaming) return null; 
+  if (!mainContent && !isStreaming) return null;
 
   return (
     <div className={clsx("flex gap-6 group animate-fade-in mb-8", isUser ? "flex-row-reverse" : "")}>
-      <div className={clsx("w-9 h-9 shrink-0 rounded-xl flex items-center justify-center shadow-lg border", isUser ? "bg-white text-black border-white" : `bg-gradient-to-br ${theme.gradient} text-white border-white/10`)}>
+      <div 
+        className={clsx("w-9 h-9 shrink-0 rounded-xl flex items-center justify-center shadow-lg border", isUser ? "bg-white text-black border-white" : `bg-gradient-to-br ${theme.gradient} text-white border-white/10`)}
+        aria-label={isUser ? "Your message" : "AI response"}
+      >
         {isUser ? <User size={18} /> : <Bot size={18} />}
       </div>
       <div className={clsx("flex-1 min-w-0 max-w-3xl", isUser ? "text-right" : "")}>
-         <div className={clsx("flex items-center gap-2 mb-2", isUser ? "justify-end" : "")}>
-           <span className="text-xs font-semibold text-white/80">{isUser ? 'You' : 'Lumina'}</span>
-           {!isUser && <span className={`text-[9px] ${theme.softBg} ${theme.accentText} px-1.5 py-0.5 rounded border border-white/10 uppercase tracking-wider font-bold`}>AI</span>}
-         </div>
-         {mainContent && (
-           <div 
-             className={clsx("leading-7 font-light tracking-wide", isUser ? "bg-[#1A1A1A] inline-block p-4 rounded-3xl rounded-tr-sm text-white/90 border border-white/10 shadow-md" : "text-gray-300")}
-             style={{ fontSize: `${fontSize}px` }}
-           >
-              <Markdown remarkPlugins={[remarkGfm]} components={{ 
-                  code({node, inline, className, children, ...props}) { const match = /language-(\w+)/.exec(className || ''); return !inline && match ? <CodeBlock language={match[1]} children={children} /> : <code {...props} className="bg-white/10 px-1.5 py-0.5 rounded text-white font-mono text-[0.9em] border border-white/5 mx-1">{children}</code> },
-                  blockquote: ({children}) => <Callout theme={theme}>{children}</Callout>,
-                  table: ({children}) => <div className="overflow-x-auto my-6 border border-white/10 rounded-2xl"><table className="w-full text-left text-sm">{children}</table></div>,
-                  th: ({children}) => <th className="bg-[#111] p-4 font-semibold border-b border-white/10 text-gray-200">{children}</th>,
-                  td: ({children}) => <td className="p-4 border-b border-white/5 text-gray-400">{children}</td>,
-                  a: ({href, children}) => <a href={href} target="_blank" className={`${theme.accentText} hover:underline underline-offset-4`}>{children}</a>,
-                  p: ({children}) => <p className="mb-4 last:mb-0">{children}</p>
-              }}>{mainContent}</Markdown>
-              
-              {/* CURSOR: Only show if streaming AND content exists */}
-              {isStreaming && <span className={`inline-block w-1.5 h-4 ml-1 ${theme.primaryBg} animate-pulse align-middle`}/>}
-           </div>
-         )}
+        <div className={clsx("flex items-center gap-2 mb-2", isUser ? "justify-end" : "")}>
+          <span className="text-xs font-semibold text-white/80">{isUser ? 'You' : 'Lumina'}</span>
+          {!isUser && <span className={`text-[9px] ${theme.softBg} ${theme.accentText} px-1.5 py-0.5 rounded border border-white/10 uppercase tracking-wider font-bold`}>AI</span>}
+        </div>
+        {mainContent && (
+          <div 
+            className={clsx("leading-7 font-light tracking-wide", isUser ? "bg-[#1A1A1A] inline-block p-4 rounded-3xl rounded-tr-sm text-white/90 border border-white/10 shadow-md" : "text-gray-300")}
+            style={{ fontSize: `${fontSize}px` }}
+          >
+            <Markdown 
+              remarkPlugins={[remarkGfm]} 
+              components={{ 
+                code({node, inline, className, children, ...props}) { 
+                  const match = /language-(\w+)/.exec(className || ''); 
+                  return !inline && match ? (
+                    <CodeBlock language={match[1]} children={children} />
+                  ) : (
+                    <code {...props} className="bg-white/10 px-1.5 py-0.5 rounded text-white font-mono text-[0.9em] border border-white/5 mx-1">
+                      {children}
+                    </code>
+                  );
+                },
+                blockquote: ({children}) => <Callout theme={theme}>{children}</Callout>,
+                table: ({children}) => <div className="overflow-x-auto my-6 border border-white/10 rounded-2xl"><table className="w-full text-left text-sm">{children}</table></div>,
+                th: ({children}) => <th className="bg-[#111] p-4 font-semibold border-b border-white/10 text-gray-200">{children}</th>,
+                td: ({children}) => <td className="p-4 border-b border-white/5 text-gray-400">{children}</td>,
+                a: ({href, children}) => <a href={href} target="_blank" rel="noopener noreferrer" className={`${theme.accentText} hover:underline underline-offset-4`}>{children}</a>,
+                p: ({children}) => <p className="mb-4 last:mb-0">{children}</p>
+              }}
+            >
+              {mainContent}
+            </Markdown>
+
+          </div>
+        )}
       </div>
     </div>
   );
-};
+});
+
+MessageBubble.displayName = 'MessageBubble';
 
 const QuickActions = ({ onAction, settings, theme }) => {
-  const studentActions = [{ label: 'Explain Simple', icon: BookOpen, cmd: '/explain_simple' }, { label: 'Quiz Me', icon: BrainCircuit, cmd: '/quiz' }, { label: 'Study Guide', icon: GraduationCap, cmd: '/study' }, { label: 'Essay', icon: PenTool, cmd: '/outline' }];
-  const devActions = [{ label: 'Code Review', icon: Eye, cmd: '/review' }, { label: 'Security Audit', icon: ShieldAlert, cmd: '/audit' }, { label: 'Unit Tests', icon: Code2, cmd: '/test' }, { label: 'Refactor', icon: Zap, cmd: '/refactor' }];
+  const studentActions = [
+    { label: 'Explain Simple', icon: BookOpen, cmd: '/explain_simple' }, 
+    { label: 'Quiz Me', icon: BrainCircuit, cmd: '/quiz' }, 
+    { label: 'Study Guide', icon: GraduationCap, cmd: '/study' }, 
+    { label: 'Essay', icon: PenTool, cmd: '/outline' }
+  ];
+  
+  const devActions = [
+    { label: 'Code Review', icon: Eye, cmd: '/review' }, 
+    { label: 'Security Audit', icon: ShieldAlert, cmd: '/audit' }, 
+    { label: 'Unit Tests', icon: Code2, cmd: '/test' }, 
+    { label: 'Refactor', icon: Zap, cmd: '/refactor' }
+  ];
+  
   const actions = settings.developerMode ? devActions : studentActions;
 
   return (
-    <div className="flex gap-2 px-4 pb-3 justify-center animate-fade-in">
+    <div className="flex gap-2 px-4 pb-3 justify-center animate-fade-in flex-wrap">
       {actions.map((action) => (
-        <button key={action.label} onClick={() => onAction(action.cmd)} className={`group flex items-center gap-2 px-3 py-1.5 bg-[#151515] border border-white/10 rounded-full text-[11px] text-gray-400 hover:text-white ${theme.hoverBg} transition-all whitespace-nowrap group shadow-sm`}>
-          <action.icon size={14} className={`${theme.accentText} opacity-70 group-hover:opacity-100 transition-colors`} /><span className="font-medium tracking-wide">{action.label}</span>
+        <button 
+          key={action.label} 
+          onClick={() => onAction(action.cmd)} 
+          className={`group flex items-center gap-2 px-3 py-1.5 bg-[#151515] border border-white/10 rounded-full text-[11px] text-gray-400 hover:text-white ${theme.hoverBg} transition-all whitespace-nowrap shadow-sm`}
+          aria-label={action.label}
+        >
+          <action.icon size={14} className={`${theme.accentText} opacity-70 group-hover:opacity-100 transition-colors`} />
+          <span className="font-medium tracking-wide">{action.label}</span>
         </button>
       ))}
     </div>
@@ -100,35 +219,77 @@ const QuickActions = ({ onAction, settings, theme }) => {
 export const Workspace = () => {
   const { messages, sendMessage, isLoading, isOllamaRunning, settings, theme } = useLumina();
   const [input, setInput] = useState("");
+  const [connectionStatus, setConnectionStatus] = useState('connected'); // 'connected', 'streaming', 'error'
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isLoading]);
-  useEffect(() => { if (textareaRef.current) { textareaRef.current.style.height = 'auto'; textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 150) + 'px'; } }, [input]);
+  // Auto-scroll on new messages
+  useEffect(() => { 
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); 
+  }, [messages, isLoading]);
 
-  const handleSend = () => { 
+  // Textarea auto-height
+  useEffect(() => { 
+    if (textareaRef.current) { 
+      textareaRef.current.style.height = 'auto'; 
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 150) + 'px'; 
+    } 
+  }, [input]);
+
+  // Update connection status based on streaming
+  useEffect(() => {
+    if (isLoading) {
+      setConnectionStatus('streaming');
+    } else {
+      setConnectionStatus('connected');
+    }
+  }, [isLoading]);
+
+  const handleSend = useCallback(() => { 
     if (!input.trim()) return; 
-    let finalPrompt = input;
-    if (input.startsWith('/explain_simple')) finalPrompt = "Explain the current context/code to me as if I am a beginner student. Use analogies, simple language, and bullet points.";
-    else if (input.startsWith('/quiz')) finalPrompt = "Create a short, interactive quiz based on the uploaded files. Ask me 3 multiple-choice questions.";
-    else if (input.startsWith('/review')) finalPrompt = "Perform a Senior Code Review on this file. Look for logic errors, performance bottlenecks, and style inconsistencies.";
-    else if (input.startsWith('/audit')) finalPrompt = "Perform a Security Audit on this code. Look for XSS, SQL Injection, and sensitive data exposure.";
-    else if (input.startsWith('/test')) finalPrompt = "Generate a complete Unit Test suite for this code.";
-    else if (input.startsWith('/refactor')) finalPrompt = "Refactor this code to be cleaner, DRY, and more efficient.";
-    sendMessage(finalPrompt); setInput(""); 
-  };
+    
+    // Use command registry for cleaner logic
+    const finalPrompt = COMMAND_REGISTRY[input.trim()] || input;
+    sendMessage(finalPrompt); 
+    setInput(""); 
+  }, [input, sendMessage]);
 
-  const handleQuickAction = (cmd) => { setInput(cmd + " "); if (textareaRef.current) textareaRef.current.focus(); };
+  const handleQuickAction = useCallback((cmd) => { 
+    setInput(cmd + " "); 
+    if (textareaRef.current) textareaRef.current.focus(); 
+  }, []);
 
-  // Logic to show Loading DOTS only if AI hasn't started writing yet
-  const showLoadingDots = isLoading && (() => {
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  }, [handleSend]);
+
+  // Improved loading logic
+  const showLoadingDots = useMemo(() => {
+    if (!isLoading) return false;
     if (messages.length === 0) return true;
+    
     const lastMsg = messages[messages.length - 1];
-    const cleanContent = lastMsg.content.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').replace(/<thinking>[\s\S]*$/gi, '').trim();
+    const cleanContent = lastMsg.content
+      .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+      .replace(/<thinking>[\s\S]*$/gi, '')
+      .trim();
+    
     return cleanContent.length === 0;
-  })();
+  }, [isLoading, messages]);
 
-  if (!isOllamaRunning) return <div className="flex-1 flex flex-col items-center justify-center text-gray-500"><div className="p-8 rounded-full bg-white/5 mb-6 animate-pulse-slow border border-white/5"><Bot size={48} className="opacity-40 text-white" /></div><p className="font-mono text-xs tracking-[0.2em] uppercase text-gray-600">System Offline • Run Ollama</p></div>;
+  if (!isOllamaRunning) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-gray-500">
+        <div className="p-8 rounded-full bg-white/5 mb-6 animate-pulse-slow border border-white/5">
+          <WifiOff size={48} className="opacity-40 text-red-400" />
+        </div>
+        <p className="font-mono text-xs tracking-[0.2em] uppercase text-gray-600">System Offline • Run Ollama</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col min-h-0 relative h-full bg-[#020202]/40 backdrop-blur-sm">
@@ -136,38 +297,95 @@ export const Workspace = () => {
         <div className="max-w-4xl mx-auto space-y-10 pt-12">
           {messages.length === 0 && (
             <div className="mt-32 text-center space-y-8 animate-enter">
-              <div className={`inline-block p-6 rounded-[2rem] ${theme.softBg} border ${theme.primaryBorder} mb-4 shadow-[0_0_80px_-20px_rgba(99,102,241,0.25)]`}><Sparkles size={56} className={theme.accentText} /></div>
-              <h1 className="text-5xl font-bold text-white tracking-tighter">Lumina {settings.developerMode ? 'Prime' : 'Academy'}</h1>
-              <p className="text-gray-500 max-w-md mx-auto text-sm leading-relaxed font-light">{settings.developerMode ? 'Advanced Neural Engineering Environment.' : 'Your personal AI research and study companion.'}</p>
+              <div className={`inline-block p-6 rounded-[2rem] ${theme.softBg} border ${theme.primaryBorder} mb-4 shadow-[0_0_80px_-20px_rgba(99,102,241,0.25)]`}>
+                <Sparkles size={56} className={theme.accentText} />
+              </div>
+              <h1 className="text-5xl font-bold text-white tracking-tighter">
+                Lumina {settings.developerMode ? 'Prime' : 'Academy'}
+              </h1>
+              <p className="text-gray-500 max-w-md mx-auto text-sm leading-relaxed font-light">
+                {settings.developerMode 
+                  ? 'Advanced Neural Engineering Environment.' 
+                  : 'Your personal AI research and study companion.'
+                }
+              </p>
+              {/* Show quick actions on empty state */}
+              <div className="mt-8">
+                <QuickActions onAction={handleQuickAction} settings={settings} theme={theme} />
+              </div>
             </div>
           )}
           
           {/* Messages */}
-          {messages.map((msg, idx) => <MessageBubble key={idx} msg={msg} theme={theme} fontSize={settings.fontSize} isStreaming={isLoading && idx === messages.length - 1} />)}
+          {messages.map((msg, idx) => (
+            <MessageBubble 
+              key={idx} 
+              msg={msg} 
+              theme={theme} 
+              fontSize={settings.fontSize} 
+              isStreaming={isLoading && idx === messages.length - 1}
+            />
+          ))}
           
-          {/* Loading Pulse - ONLY visible if text hasn't started yet */}
+          {/* Loading Pulse - Only visible if text hasn't started yet */}
           {showLoadingDots && (
-             <div className="flex items-center gap-4 px-4 py-4 ml-[60px] animate-fade-in">
-                <div className="flex space-x-1.5">
-                  <div className={`w-1.5 h-1.5 ${theme.primaryBg} rounded-full animate-bounce [animation-delay:-0.3s]`}></div>
-                  <div className={`w-1.5 h-1.5 ${theme.primaryBg} rounded-full animate-bounce [animation-delay:-0.15s]`}></div>
-                  <div className={`w-1.5 h-1.5 ${theme.primaryBg} rounded-full animate-bounce`}></div>
-                </div>
-                <span className={`text-[10px] ${theme.accentText} font-mono animate-pulse tracking-[0.2em] uppercase`}>{settings.developerMode ? 'COMPUTING...' : 'THINKING...'}</span>
-             </div>
+            <div className="flex items-center gap-4 px-4 py-4 ml-[60px] animate-fade-in">
+              <div className="flex space-x-1.5">
+                <div className={`w-1.5 h-1.5 ${theme.primaryBg} rounded-full animate-bounce [animation-delay:-0.3s]`} aria-hidden="true" />
+                <div className={`w-1.5 h-1.5 ${theme.primaryBg} rounded-full animate-bounce [animation-delay:-0.15s]`} aria-hidden="true" />
+                <div className={`w-1.5 h-1.5 ${theme.primaryBg} rounded-full animate-bounce`} aria-hidden="true" />
+              </div>
+              <span className={`text-[10px] ${theme.accentText} font-mono animate-pulse tracking-[0.2em] uppercase`}>
+                {settings.developerMode ? 'COMPUTING...' : 'THINKING...'}
+              </span>
+            </div>
           )}
+          
+          {/* Streaming indicator */}
+          {isLoading && !showLoadingDots && (
+            <div className="flex items-center gap-2 px-4 py-2 ml-[60px] text-[9px] text-gray-500 animate-pulse">
+              <Wifi size={12} className="text-emerald-400" />
+              <span className="font-mono">STREAMING...</span>
+            </div>
+          )}
+          
           <div ref={bottomRef} />
         </div>
       </div>
       
       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-[#000000] via-[#000000] to-transparent pt-20 pb-4 pointer-events-none">
         <div className="max-w-3xl mx-auto pointer-events-auto flex flex-col gap-3 px-6">
-           {!isLoading && messages.length > 0 && <QuickActions onAction={handleQuickAction} settings={settings} theme={theme} />}
-           <div className={`relative flex items-end gap-3 bg-[#0A0A0A]/95 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-2 shadow-2xl ring-1 ring-white/5 transition-all focus-within:ring-${settings.developerMode ? 'rose' : 'indigo'}-500/30 focus-within:border-${settings.developerMode ? 'rose' : 'indigo'}-500/30`}>
-              <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())} placeholder={`Message ${settings.developerMode ? 'Prime' : 'Lumina'}...`} className="w-full bg-transparent border-none focus:ring-0 text-white placeholder-gray-500 text-sm resize-none max-h-32 min-h-[24px] py-3 px-4 custom-scrollbar font-medium outline-none" rows={1} />
-              <button onClick={handleSend} disabled={isLoading || !input.trim()} className={`mb-1 mr-1 p-2.5 rounded-full bg-white text-black ${theme.hoverBg} disabled:opacity-50 disabled:bg-gray-800 disabled:text-gray-600 transition-all shadow-lg shadow-white/5`}>{isLoading ? <StopCircle size={16} /> : <ArrowUp size={16} />}</button>
-           </div>
-           <div className="text-center flex items-center justify-center gap-2 opacity-30 hover:opacity-100 transition-opacity duration-500"><Terminal size={10} className={theme.accentText}/><span className="text-[9px] text-gray-600 uppercase tracking-[0.2em] font-medium">Lumina {settings.developerMode ? 'Prime' : 'Core'} OS</span></div>
+          {!isLoading && messages.length > 0 && (
+            <QuickActions onAction={handleQuickAction} settings={settings} theme={theme} />
+          )}
+          
+          <div className={`relative flex items-end gap-3 bg-[#0A0A0A]/95 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-2 shadow-2xl ring-1 ring-white/5 transition-all ${isLoading ? 'ring-emerald-500/30 border-emerald-500/30' : 'focus-within:ring-indigo-500/30 focus-within:border-indigo-500/30'}`}>
+            <textarea 
+              ref={textareaRef} 
+              value={input} 
+              onChange={(e) => setInput(e.target.value)} 
+              onKeyDown={handleKeyDown}
+              placeholder={`Message ${settings.developerMode ? 'Prime' : 'Lumina'}...`} 
+              className="w-full bg-transparent border-none focus:ring-0 text-white placeholder-gray-500 text-sm resize-none max-h-32 min-h-[24px] py-3 px-4 custom-scrollbar font-medium outline-none" 
+              rows={1}
+              aria-label="Message input"
+            />
+            <button 
+              onClick={handleSend} 
+              disabled={isLoading || !input.trim()} 
+              className={`mb-1 mr-1 p-2.5 rounded-full bg-white text-black ${theme.hoverBg} disabled:opacity-50 disabled:bg-gray-800 disabled:text-gray-600 transition-all shadow-lg shadow-white/5`}
+              aria-label={isLoading ? "Stop generation" : "Send message"}
+            >
+              {isLoading ? <StopCircle size={16} /> : <ArrowUp size={16} />}
+            </button>
+          </div>
+          
+          <div className="text-center flex items-center justify-center gap-2 opacity-30 hover:opacity-100 transition-opacity duration-500">
+            <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-emerald-500' : connectionStatus === 'streaming' ? 'bg-blue-500 animate-pulse' : 'bg-red-500'}`} aria-hidden="true" />
+            <span className="text-[9px] text-gray-600 uppercase tracking-[0.2em] font-medium">
+              Lumina {settings.developerMode ? 'Prime' : 'Core'} OS
+            </span>
+          </div>
         </div>
       </div>
     </div>

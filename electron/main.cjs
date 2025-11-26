@@ -125,76 +125,121 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('settings:save', async (e, settings) => { await fs.promises.writeFile(getSettingsPath(), JSON.stringify(settings, null, 2)); return true; });
 
-  // --- OLLAMA STREAM (HUMANIZED) ---
+  // --- OPTIMIZED OLLAMA STREAM (FASTER) ---
   ipcMain.on('ollama:stream-prompt', async (event, { prompt, model, contextFiles, systemPrompt, settings }) => {
     if (!win) return;
     try {
       const config = settings || DEFAULT_SETTINGS;
       const baseUrl = config.ollamaUrl || "http://127.0.0.1:11434";
       
-      // *** NEW HUMANIZED PERSONAS ***
-      const devPersona = `
-      You are Lumina Prime, a Senior Engineer and Architect.
-      TONE: Professional, direct, but conversational. Like a helpful senior colleague.
-      INSTRUCTIONS:
-      1. Don't use robotic phrases like "Here is the code". Just start explaining or coding.
-      2. Use <mermaid> for diagrams if the topic is complex.
-      3. NO <thinking> tags.
-      `;
+      const devPersona = `You are Lumina Prime, a Senior Engineer and Architect.
+TONE: Professional, direct, but conversational. Like a helpful senior colleague.
+INSTRUCTIONS:
+1. Don't use robotic phrases like "Here is the code". Just start explaining or coding.
+2. Use <mermaid> for diagrams if the topic is complex.
+3. NO <thinking> tags.`;
 
-      const studentPersona = `
-      You are Lumina Academy, a warm and encouraging Tutor.
-      TONE: Friendly, patient, and clear. Avoid jargon unless you explain it.
-      INSTRUCTIONS:
-      1. Explain concepts simply.
-      2. Use examples and analogies.
-      3. NO <thinking> tags.
-      `;
+      const studentPersona = `You are Lumina Academy, a warm and encouraging Tutor.
+TONE: Friendly, patient, and clear. Avoid jargon unless you explain it.
+INSTRUCTIONS:
+1. Explain concepts simply.
+2. Use examples and analogies.
+3. NO <thinking> tags.`;
 
       const baseSystem = config.developerMode ? devPersona : studentPersona;
       const userSystem = systemPrompt || config.systemPrompt || "";
-      const finalPrompt = `SYSTEM: ${baseSystem}\n${userSystem}\n\n`;
+      const systemPromptFinal = `${baseSystem}${userSystem ? '\n' + userSystem : ''}`;
 
+      // Pre-load context files once instead of twice
+      let contextStr = "";
       if (contextFiles && contextFiles.length > 0) {
-        win.webContents.send('ollama:chunk', ''); // Wake up UI
-        const fileContext = await readProjectFiles(contextFiles);
-        // In a real app, we'd manage context window size here
+        contextStr = await readProjectFiles(contextFiles);
+        // Send immediate feedback to UI
+        win.webContents.send('ollama:chunk', '');
       }
+
+      // Build final prompt with context upfront
+      const fullPrompt = contextStr 
+        ? `CONTEXT:\n${contextStr}\n\nUSER: ${prompt}`
+        : prompt;
+
+      // Fetch from Ollama with optimizations
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 min timeout
 
       const response = await fetch(`${baseUrl}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({ 
           model: model || config.defaultModel, 
-          prompt: contextFiles && contextFiles.length > 0 ? `CONTEXT:\n${await readProjectFiles(contextFiles)}\n\n${finalPrompt} USER: ${prompt}` : `${finalPrompt} USER: ${prompt}`, 
+          prompt: `[SYSTEM]${systemPromptFinal}\n\n[USER]${fullPrompt}`,
           stream: true,
-          options: { num_ctx: parseInt(config.contextLength) || 8192, temperature: parseFloat(config.temperature) || 0.7 }
+          keep_alive: "10m", // CRITICAL: Keep model loaded
+          options: { 
+            num_ctx: parseInt(config.contextLength) || 8192, 
+            temperature: parseFloat(config.temperature) || 0.7,
+            num_threads: 8, // Use more threads for faster generation
+          }
         })
       });
-      
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Ollama API error: ${response.statusText}`);
+      }
+
+      // Optimized streaming: Direct buffer reading
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      let buffer = "";
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunkStr = decoder.decode(value, { stream: true });
-        const lines = chunkStr.split('\n').filter(line => line.trim() !== '');
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        
+        // Process all complete lines, keep incomplete line in buffer
+        buffer = lines.pop() || "";
+
         for (const line of lines) {
-           try {
-             const json = JSON.parse(line);
-             if (json.response) win.webContents.send('ollama:chunk', json.response);
-             if (json.done) win.webContents.send('ollama:chunk', '[DONE]');
-           } catch (e) { }
+          if (!line.trim()) continue;
+          try {
+            const json = JSON.parse(line);
+            if (json.response) {
+              win.webContents.send('ollama:chunk', json.response);
+            }
+            if (json.done) {
+              win.webContents.send('ollama:chunk', '[DONE]');
+            }
+          } catch (e) {
+            // Silently skip malformed JSON
+          }
         }
       }
-    } catch (error) { win.webContents.send('ollama:error', `Connection Error: ${error.message}`); }
+
+      // Send remaining buffer content
+      if (buffer.trim()) {
+        try {
+          const json = JSON.parse(buffer);
+          if (json.response) win.webContents.send('ollama:chunk', json.response);
+          if (json.done) win.webContents.send('ollama:chunk', '[DONE]');
+        } catch (e) {}
+      }
+
+    } catch (error) { 
+      win.webContents.send('ollama:error', `Connection Error: ${error.message}`);
+    }
   });
 
   // ... (Rest of Handlers - Keep exactly as they are from previous) ...
   ipcMain.handle('ollama:generate-json', async (e, { prompt, model, settings }) => { const config = settings || DEFAULT_SETTINGS; const baseUrl = config.ollamaUrl || "http://127.0.0.1:11434"; try { const response = await fetch(`${baseUrl}/api/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: model || config.defaultModel, prompt: prompt, format: 'json', stream: false, options: { temperature: 0.2 } }) }); const data = await response.json(); try { return JSON.parse(data.response); } catch { return data.response; } } catch (e) { return []; } });
   ipcMain.handle('ollama:status', async (e, url) => { try { const r = await fetch(`${url || 'http://127.0.0.1:11434'}/api/tags`); if(r.ok) return true; } catch(e){} return false; });
   ipcMain.handle('ollama:models', async (e, url) => { try { const r = await fetch(`${url || 'http://127.0.0.1:11434'}/api/tags`); const data = await r.json(); return data.models.map(m => m.name); } catch(e) { return []; } });
-  ipcMain.handle('project:add-url', async (e, { projectId, url }) => { try { const cheerio = loadCheerio(); const response = await fetch(url); const html = await response.text(); const $ = cheerio.load(html); $('script, style, nav, footer, iframe').remove(); const content = $('body').text().replace(/\s\s+/g, ' ').trim(); const filename = `web-${Date.now()}.txt`; await fs.promises.writeFile(path.join(getCachePath(), filename), text, 'utf-8'); const projectPath = path.join(getProjectsPath(), `${projectId}.json`); const projectData = JSON.parse(await fs.promises.readFile(projectPath, 'utf-8')); projectData.files.push({ path: url, name: $('title').text() || url, type: 'url', cacheFile: filename }); await fs.promises.writeFile(projectPath, JSON.stringify(projectData, null, 2)); return projectData.files; } catch (e) { throw new Error("Scrape Failed"); } });
+  ipcMain.handle('project:add-url', async (e, { projectId, url }) => { try { const cheerio = loadCheerio(); const response = await fetch(url); const html = await response.text(); const $ = cheerio.load(html); $('script, style, nav, footer, iframe').remove(); const content = $('body').text().replace(/\s\s+/g, ' ').trim(); const filename = `web-${Date.now()}.txt`; await fs.promises.writeFile(path.join(getCachePath(), filename), content, 'utf-8'); const projectPath = path.join(getProjectsPath(), `${projectId}.json`); const projectData = JSON.parse(await fs.promises.readFile(projectPath, 'utf-8')); projectData.files.push({ path: url, name: $('title').text() || url, type: 'url', cacheFile: filename }); await fs.promises.writeFile(projectPath, JSON.stringify(projectData, null, 2)); return projectData.files; } catch (e) { throw new Error("Scrape Failed"); } });
   ipcMain.handle('system:save-file', async (e, { content, filename }) => { const { filePath } = await dialog.showSaveDialog(win, { defaultPath: filename || 'untitled.txt', }); if (filePath) { await fs.promises.writeFile(filePath, content, 'utf-8'); return true; } return false; });
   ipcMain.handle('project:update-settings', async (e, { id, systemPrompt }) => { const p = path.join(getProjectsPath(), `${id}.json`); if (fs.existsSync(p)) { const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); d.systemPrompt = systemPrompt; await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); return d; } return null; });
   ipcMain.handle('project:list', async () => { const d = getProjectsPath(); const f = await fs.promises.readdir(d); const p = []; for (const x of f) { if(x.endsWith('.json')) p.push(JSON.parse(await fs.promises.readFile(path.join(d, x), 'utf-8'))); } return p; });
