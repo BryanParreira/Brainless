@@ -1,4 +1,5 @@
-import { CommandBar } from "./components/CommandBar";
+import React from 'react';
+import { CommandBar } from "./components/CommandBar"; 
 import { Sidebar } from "./components/Sidebar";
 import { Workspace } from "./components/Workspace";
 import { Cerebro } from "./components/Cerebro";
@@ -19,25 +20,37 @@ const MainContent = () => {
   return (
     <div className="flex flex-col flex-1 h-full min-w-0 relative z-10 gap-2">
       <CommandBar />
-      <div className="flex-1 rounded-2xl glass-panel overflow-hidden relative shadow-2xl bg-[#030304]">{content}</div>
+      <div className="flex-1 rounded-2xl glass-panel overflow-hidden relative shadow-2xl bg-[#030304]">
+        {content}
+      </div>
     </div>
   );
 };
 
 const AppContent = () => {
   const { isSettingsOpen, closeGlobalSettings } = useLumina();
+  
   return (
     <>
       <div className="flex h-screen w-screen bg-void text-white overflow-hidden p-3 gap-3 relative selection:bg-indigo-500/30">
         <div className="bg-noise"></div>
-        <div className="w-[260px] flex flex-col z-20 h-full shrink-0"><Sidebar /></div>
+        
+        <div className="w-[260px] flex flex-col z-20 h-full shrink-0">
+          <Sidebar />
+        </div>
+        
         <MainContent />
       </div>
+      
       <Settings isOpen={isSettingsOpen} onClose={closeGlobalSettings} />
     </>
   );
 };
 
 export default function App() {
-  return <LuminaProvider><AppContent /></LuminaProvider>;
+  return (
+    <LuminaProvider>
+      <AppContent />
+    </LuminaProvider>
+  );
 }

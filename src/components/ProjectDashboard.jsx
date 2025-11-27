@@ -1,6 +1,6 @@
 import React, { useMemo, useCallback } from 'react';
 import { useLumina } from '../context/LuminaContext';
-import { Folder, File, Globe, GitBranch, Upload, FolderPlus, Hash, Layout } from 'lucide-react';
+import { Folder, File, Globe, GitBranch, FolderPlus, Hash, Layout } from 'lucide-react';
 import clsx from 'clsx';
 
 const FileItem = React.memo(({ file, index, theme }) => (
@@ -110,16 +110,16 @@ const ContextStatsCard = React.memo(({ activeProject, theme }) => (
 
 ContextStatsCard.displayName = 'ContextStatsCard';
 
-const EmptyState = React.memo(({ addFiles, theme }) => (
+const EmptyState = React.memo(({ addFolder, theme }) => (
   <div className="flex-1 flex flex-col items-center justify-center text-gray-600 border-2 border-dashed border-white/5 rounded-xl py-16">
     <FolderPlus size={32} className="mb-3 opacity-20" />
     <p className="text-xs font-medium mb-2">Project is empty</p>
     <button
-      onClick={addFiles}
+      onClick={addFolder}
       className={`text-xs ${theme.accentText} hover:underline font-medium`}
-      aria-label="Add files to start"
+      aria-label="Add folder to start"
     >
-      Add files to start
+      Add folder to start
     </button>
   </div>
 ));
@@ -127,7 +127,7 @@ const EmptyState = React.memo(({ addFiles, theme }) => (
 EmptyState.displayName = 'EmptyState';
 
 export const ProjectDashboard = React.memo(() => {
-  const { activeProject, gitStatus, addFiles, addFolder, addUrl, theme, settings } = useLumina();
+  const { activeProject, gitStatus, addFolder, theme, settings } = useLumina();
 
   // Memoize file list rendering
   const fileList = useMemo(
@@ -170,28 +170,12 @@ export const ProjectDashboard = React.memo(() => {
 
           <div className="flex gap-2">
             <button
-              onClick={addFiles}
-              className="flex items-center gap-2 px-4 py-2 bg-[#111] hover:bg-[#1a1a1a] border border-white/10 rounded-xl text-xs font-medium text-gray-300 hover:text-white transition-all group"
-              aria-label="Add files to project"
-            >
-              <Upload size={14} className="text-gray-500 group-hover:text-white transition-colors" />
-              Add File
-            </button>
-            <button
               onClick={addFolder}
               className={`flex items-center gap-2 px-4 py-2 bg-[#111] hover:bg-[#1a1a1a] border border-white/10 rounded-xl text-xs font-medium ${theme.accentText} transition-all group`}
               aria-label="Add folder to project"
             >
               <FolderPlus size={14} />
               Add Folder
-            </button>
-            <button
-              onClick={addUrl}
-              className="flex items-center gap-2 px-4 py-2 bg-[#111] hover:bg-[#1a1a1a] border border-white/10 rounded-xl text-xs font-medium text-blue-400 hover:text-blue-300 transition-all"
-              aria-label="Add URL to project"
-            >
-              <Globe size={14} />
-              Add Link
             </button>
           </div>
         </div>
@@ -223,7 +207,7 @@ export const ProjectDashboard = React.memo(() => {
             </div>
 
             {fileList.length === 0 ? (
-              <EmptyState addFiles={addFiles} theme={theme} />
+              <EmptyState addFolder={addFolder} theme={theme} />
             ) : (
               <div className="flex-1 overflow-y-auto custom-scrollbar space-y-1 pr-2">
                 {fileList.map((file, index) => (
