@@ -37,11 +37,14 @@ const DEFAULT_SETTINGS = {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 950,
+    width: 1100,  // CHANGED: Reduced size (was 1400)
+    height: 750,  // CHANGED: Reduced size (was 950)
     backgroundColor: '#030304',
     show: false,
-    titleBarStyle: 'hiddenInset',
+    
+    // CHANGED: Commented out to show the standard window bar so you can move it easily
+    // titleBarStyle: 'hiddenInset', 
+    
     vibrancy: 'ultra-dark',
     visualEffectState: 'active',
     webPreferences: {
@@ -235,7 +238,7 @@ INSTRUCTIONS:
     }
   });
 
-  // ... (Rest of Handlers - Keep exactly as they are from previous) ...
+  // ... (Rest of Handlers) ...
   ipcMain.handle('ollama:generate-json', async (e, { prompt, model, settings }) => { const config = settings || DEFAULT_SETTINGS; const baseUrl = config.ollamaUrl || "http://127.0.0.1:11434"; try { const response = await fetch(`${baseUrl}/api/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: model || config.defaultModel, prompt: prompt, format: 'json', stream: false, options: { temperature: 0.2 } }) }); const data = await response.json(); try { return JSON.parse(data.response); } catch { return data.response; } } catch (e) { return []; } });
   ipcMain.handle('ollama:status', async (e, url) => { try { const r = await fetch(`${url || 'http://127.0.0.1:11434'}/api/tags`); if(r.ok) return true; } catch(e){} return false; });
   ipcMain.handle('ollama:models', async (e, url) => { try { const r = await fetch(`${url || 'http://127.0.0.1:11434'}/api/tags`); const data = await r.json(); return data.models.map(m => m.name); } catch(e) { return []; } });

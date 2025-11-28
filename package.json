@@ -1,5 +1,5 @@
 {
-  "name": "lumina-desktop",
+  "name": "OmniLab",
   "private": true,
   "version": "2.0.0",
   "type": "module",
@@ -40,8 +40,8 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.lumina.local",
-    "productName": "Lumina Studio",
+    "appId": "com.omnilab.local",
+    "productName": "OmniLab",
     "files": [
       "dist/**/*",
       "electron/**/*"
