@@ -125,14 +125,14 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('settings:save', async (e, settings) => { await fs.promises.writeFile(getSettingsPath(), JSON.stringify(settings, null, 2)); return true; });
 
-  // --- BLUEPRINT ENGINE (Scaffolding) ---
+  // --- BLUEPRINT ENGINE ---
   ipcMain.handle('project:scaffold', async (e, { projectId, structure }) => {
-    // No try/catch wrapper here so errors bubble up to UI if path is missing
+    // Errors bubble up to UI
     const p = path.join(getProjectsPath(), `${projectId}.json`);
     if (!fs.existsSync(p)) throw new Error("Project not found");
     const projectData = JSON.parse(await fs.promises.readFile(p, 'utf-8'));
     
-    if (!projectData.rootPath) throw new Error("NO_ROOT_PATH"); // Custom error code
+    if (!projectData.rootPath) throw new Error("NO_ROOT_PATH");
 
     const root = projectData.rootPath;
     const results = [];
@@ -140,7 +140,7 @@ app.whenReady().then(() => {
     for (const item of structure) {
       try {
         const fullPath = path.join(root, item.path);
-        // Security check to ensure we don't write outside project folder
+        // Security check
         if (!fullPath.startsWith(root)) continue;
 
         if (item.type === 'folder') {
@@ -157,27 +157,28 @@ app.whenReady().then(() => {
     return results;
   });
 
-  // --- OLLAMA STREAM ---
+  // --- OLLAMA STREAM (UPDATED PROMPTS) ---
   ipcMain.on('ollama:stream-prompt', async (event, { prompt, model, contextFiles, systemPrompt, settings }) => {
     if (!win) return;
     try {
       const config = settings || DEFAULT_SETTINGS;
       const baseUrl = config.ollamaUrl || "http://127.0.0.1:11434";
       
-      // --- UPDATED PERSONAS (Fixes Hallucination) ---
+      // --- STRICT PERSONAS TO PREVENT HALLUCINATIONS ---
       const devPersona = `You are OmniLab Forge, a Senior Engineer.
 TONE: Professional, concise, direct.
 INSTRUCTIONS:
-1. For casual greetings (like "hello", "hi"), answer normally and briefly. Do NOT use diagrams.
-2. ONLY use <mermaid> tags if the user specifically asks for architecture, a diagram, or a flow.
-3. For code questions, go straight to the solution.`;
+1. If the user asks for code (e.g., "create a login page", "write a function"), output the CODE immediately in a markdown block. Do NOT use diagrams.
+2. ONLY use <mermaid> tags if the user explicitly asks for "architecture", "diagram", "flowchart", or "graph".
+3. For casual greetings (like "hello"), answer normally and briefly.`;
 
       const studentPersona = `You are OmniLab Nexus, a Research Assistant.
 TONE: Academic, helpful, clear.
 INSTRUCTIONS:
-1. For casual greetings, be polite and helpful.
+1. Answer questions directly.
 2. Use markdown lists for complex topics.
-3. Answer questions directly without fluff.`;
+3. Do NOT use diagrams unless explicitly asked.
+4. For casual greetings, be polite and helpful.`;
       // ----------------------------------------------
 
       const baseSystem = config.developerMode ? devPersona : studentPersona;
@@ -246,7 +247,7 @@ INSTRUCTIONS:
     }
   });
 
-  // --- ROBUST JSON GENERATOR (Strips Markdown) ---
+  // --- ROBUST JSON GENERATOR ---
   ipcMain.handle('ollama:generate-json', async (e, { prompt, model, settings }) => { 
     const config = settings || DEFAULT_SETTINGS; 
     const baseUrl = config.ollamaUrl || "http://127.0.0.1:11434"; 
@@ -266,7 +267,7 @@ INSTRUCTIONS:
       const data = await response.json(); 
       let rawText = data.response.trim();
       
-      // FIX: Clean up markdown code blocks if present (fixes small model errors)
+      // Strip markdown code blocks if present
       if (rawText.startsWith('```json')) {
         rawText = rawText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
       } else if (rawText.startsWith('```')) {
