@@ -1,307 +1,254 @@
-if (typeof DOMMatrix === 'undefined') { global.DOMMatrix = class DOMMatrix {}; }
-if (typeof ImageData === 'undefined') { global.ImageData = class ImageData {}; }
-if (typeof Path2D === 'undefined') { global.Path2D = class Path2D {}; }
+// Replace your ollama:stream-prompt handler with this improved version
 
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
-const path = require('path');
-const fs = require('fs');
-const { createTray } = require('./tray.cjs');
-
-const loadPdf = () => require('pdf-parse');
-const loadCheerio = () => require('cheerio');
-const loadGit = () => require('simple-git');
-
-let mainWindow;
-
-const getUserDataPath = () => app.getPath('userData');
-const getSessionsPath = () => path.join(getUserDataPath(), 'sessions');
-const getProjectsPath = () => path.join(getUserDataPath(), 'projects');
-const getCachePath = () => path.join(getProjectsPath(), 'cache');
-const getSettingsPath = () => path.join(getUserDataPath(), 'settings.json');
-const getCalendarPath = () => path.join(getUserDataPath(), 'calendar.json');
-
-[getSessionsPath(), getProjectsPath(), getCachePath()].forEach(dir => {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-});
-
-const DEFAULT_SETTINGS = {
-  ollamaUrl: "http://127.0.0.1:11434",
-  defaultModel: "llama3",
-  contextLength: 8192,
-  temperature: 0.7,
-  systemPrompt: "",
-  developerMode: false,
-  fontSize: 14,
-  chatDensity: 'comfortable'
-};
-
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1100,
-    height: 750,
-    backgroundColor: '#030304',
-    show: false,
-    titleBarStyle: 'hiddenInset',
-    vibrancy: 'ultra-dark',
-    visualEffectState: 'active',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false
-    },
-  });
-
-  if (process.env.NODE_ENV === 'development') {
-    mainWindow.loadURL("http://localhost:5173/");
-  } else {
-    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
-  }
+ipcMain.on('ollama:stream-prompt', async (event, { prompt, model, contextFiles, systemPrompt, settings }) => {
+  if (!mainWindow) return;
   
-  mainWindow.once('ready-to-show', () => mainWindow.show());
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
-  return mainWindow;
-}
-
-// --- HELPER FUNCTIONS ---
-async function readProjectFiles(projectFiles) {
-  let context = "";
-  for (const file of projectFiles) {
-    try {
-      if (file.type === 'url') {
-        const filePath = path.join(getCachePath(), file.cacheFile);
-        if (fs.existsSync(filePath)) {
-           const content = await fs.promises.readFile(filePath, 'utf-8');
-           context += `\n--- WEB RESOURCE: ${file.name} ---\n${content.slice(0, 15000)}\n`;
-        }
-        continue;
-      }
-      const stats = await fs.promises.stat(file.path);
-      if (stats.size > 10 * 1024 * 1024) continue; 
-      
-      if (file.path.toLowerCase().endsWith('.pdf')) {
-        const pdf = loadPdf();
-        const dataBuffer = await fs.promises.readFile(file.path);
-        const data = await pdf(dataBuffer);
-        context += `\n--- PDF DOCUMENT: ${file.name} ---\n${data.text.slice(0, 15000)}\n`;
-      } 
-      else if (!['png','jpg','exe','bin','zip','iso'].includes(file.type.toLowerCase())) {
-        const content = await fs.promises.readFile(file.path, 'utf-8');
-        if (content.indexOf('\0') === -1) context += `\n--- FILE: ${file.name} ---\n${content}\n`;
-      }
-    } catch (e) {}
-  }
-  return context;
-}
-
-async function scanDirectory(dirPath, fileList = []) {
-  const files = await fs.promises.readdir(dirPath, { withFileTypes: true });
-  for (const file of files) {
-    const fullPath = path.join(dirPath, file.name);
-    if (file.isDirectory()) {
-      if (!['node_modules', '.git', 'dist', 'build', '.next', '.vscode', '.idea'].includes(file.name)) {
-        await scanDirectory(fullPath, fileList);
-      }
-    } else {
-      if (!['.DS_Store', 'package-lock.json', 'yarn.lock'].includes(file.name)) {
-        fileList.push({ path: fullPath, name: file.name, type: path.extname(file.name).substring(1) });
-      }
-    }
-  }
-  return fileList;
-}
-
-const gitHandler = {
-  async getStatus(rootPath) { try { if (!rootPath || !fs.existsSync(path.join(rootPath, '.git'))) return null; const git = loadGit()(rootPath); const status = await git.status(); return { current: status.current, modified: status.modified, staged: status.staged, clean: status.isClean() }; } catch (e) { return null; } },
-  async getDiff(rootPath) { try { if (!rootPath) return ""; const git = loadGit()(rootPath); let diff = await git.diff(['--staged']); if (!diff) diff = await git.diff(); return diff; } catch (e) { return ""; } }
-};
-
-app.whenReady().then(() => {
-  const win = createWindow();
-  createTray(win);
-
-  ipcMain.handle('settings:load', async () => {
-    try { if (fs.existsSync(getSettingsPath())) { const data = JSON.parse(await fs.promises.readFile(getSettingsPath(), 'utf-8')); return { ...DEFAULT_SETTINGS, ...data }; } } catch (e) { } return DEFAULT_SETTINGS;
-  });
-  ipcMain.handle('settings:save', async (e, settings) => { await fs.promises.writeFile(getSettingsPath(), JSON.stringify(settings, null, 2)); return true; });
-
-  // --- BLUEPRINT ENGINE ---
-  ipcMain.handle('project:scaffold', async (e, { projectId, structure }) => {
-    // Errors bubble up to UI
-    const p = path.join(getProjectsPath(), `${projectId}.json`);
-    if (!fs.existsSync(p)) throw new Error("Project not found");
-    const projectData = JSON.parse(await fs.promises.readFile(p, 'utf-8'));
+  try {
+    const config = settings || DEFAULT_SETTINGS;
+    const baseUrl = config.ollamaUrl || "http://127.0.0.1:11434";
     
-    if (!projectData.rootPath) throw new Error("NO_ROOT_PATH");
+    // --- ENHANCED ANTI-HALLUCINATION SYSTEM PROMPTS ---
+    const devPersona = `You are OmniLab Forge, a Senior Software Engineer and Code Assistant.
 
-    const root = projectData.rootPath;
-    const results = [];
+CORE RULES - NEVER VIOLATE:
+1. ONLY provide information you are CERTAIN about
+2. If you don't know something, say "I don't have information about that"
+3. NEVER make up file paths, function names, or API details
+4. NEVER assume project structure unless explicitly provided in context
 
-    for (const item of structure) {
-      try {
-        const fullPath = path.join(root, item.path);
-        // Security check
-        if (!fullPath.startsWith(root)) continue;
+CODE GENERATION RULES:
+- Provide complete, working code examples
+- Use best practices and modern syntax
+- Include error handling where appropriate
+- Add brief comments for complex logic
 
-        if (item.type === 'folder') {
-          await fs.promises.mkdir(fullPath, { recursive: true });
-        } else {
-          await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
-          await fs.promises.writeFile(fullPath, item.content || '', 'utf-8');
-        }
-        results.push({ success: true, path: item.path });
-      } catch (err) {
-        results.push({ success: false, path: item.path, error: err.message });
+DIAGRAM RULES:
+- ONLY create diagrams when user explicitly asks for: "diagram", "flowchart", "architecture", "graph", or "visualize"
+- Use <mermaid> tags ONLY for diagrams
+- For code requests, NEVER use diagrams - output code directly
+
+RESPONSE STYLE:
+- Be concise and professional
+- Answer the actual question asked
+- Don't over-explain unless requested`;
+
+    const studentPersona = `You are OmniLab Nexus, an Academic Research Assistant.
+
+CORE RULES - NEVER VIOLATE:
+1. ONLY provide factual information you are confident about
+2. Clearly distinguish between facts and interpretations
+3. If uncertain, say "I'm not certain, but..." or "I don't have verified information"
+4. NEVER fabricate sources, citations, or research findings
+5. Stick to the context provided - don't invent details
+
+RESEARCH RULES:
+- Base answers on provided context when available
+- Acknowledge limitations in your knowledge
+- Suggest where users can find authoritative information
+- Be clear about what is opinion vs fact
+
+DIAGRAM RULES:
+- ONLY create diagrams if explicitly requested
+- Use <mermaid> tags ONLY when user asks for visual representations
+
+RESPONSE STYLE:
+- Clear, educational, and well-structured
+- Use examples to clarify complex concepts
+- Be helpful but don't assume beyond what's asked`;
+
+    // --- ENHANCED CONTEXT HANDLING ---
+    const baseSystem = config.developerMode ? devPersona : studentPersona;
+    const userSystem = systemPrompt || config.systemPrompt || "";
+    const systemPromptFinal = `${baseSystem}${userSystem ? '\n\nADDITIONAL CONTEXT:\n' + userSystem : ''}`;
+
+    let contextStr = "";
+    if (contextFiles && contextFiles.length > 0) {
+      contextStr = await readProjectFiles(contextFiles);
+      if (contextStr.trim()) {
+        mainWindow.webContents.send('ollama:chunk', ''); // Signal context loaded
       }
     }
-    return results;
-  });
 
-  // --- OLLAMA STREAM (UPDATED PROMPTS) ---
-  ipcMain.on('ollama:stream-prompt', async (event, { prompt, model, contextFiles, systemPrompt, settings }) => {
-    if (!win) return;
-    try {
-      const config = settings || DEFAULT_SETTINGS;
-      const baseUrl = config.ollamaUrl || "http://127.0.0.1:11434";
-      
-      // --- STRICT PERSONAS TO PREVENT HALLUCINATIONS ---
-      const devPersona = `You are OmniLab Forge, a Senior Engineer.
-TONE: Professional, concise, direct.
-INSTRUCTIONS:
-1. If the user asks for code (e.g., "create a login page", "write a function"), output the CODE immediately in a markdown block. Do NOT use diagrams.
-2. ONLY use <mermaid> tags if the user explicitly asks for "architecture", "diagram", "flowchart", or "graph".
-3. For casual greetings (like "hello"), answer normally and briefly.`;
+    // --- IMPROVED PROMPT STRUCTURE ---
+    let fullPrompt = prompt;
+    if (contextStr.trim()) {
+      fullPrompt = `You have access to the following project files and context. Use ONLY this information to answer questions about the project. Do not make assumptions about files or code not shown here.
 
-      const studentPersona = `You are OmniLab Nexus, a Research Assistant.
-TONE: Academic, helpful, clear.
-INSTRUCTIONS:
-1. Answer questions directly.
-2. Use markdown lists for complex topics.
-3. Do NOT use diagrams unless explicitly asked.
-4. For casual greetings, be polite and helpful.`;
-      // ----------------------------------------------
+PROJECT CONTEXT:
+${contextStr}
 
-      const baseSystem = config.developerMode ? devPersona : studentPersona;
-      const userSystem = systemPrompt || config.systemPrompt || "";
-      const systemPromptFinal = `${baseSystem}${userSystem ? '\n' + userSystem : ''}`;
+---
 
-      let contextStr = "";
-      if (contextFiles && contextFiles.length > 0) {
-        contextStr = await readProjectFiles(contextFiles);
-        win.webContents.send('ollama:chunk', '');
+USER QUESTION: ${prompt}
+
+Remember: Only reference information explicitly provided above. If asked about something not in the context, clearly state you don't have that information.`;
+    }
+
+    // --- ROBUST FETCH WITH BETTER ERROR HANDLING ---
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000);
+
+    const requestBody = {
+      model: model || config.defaultModel,
+      prompt: fullPrompt,
+      system: systemPromptFinal, // Use proper system parameter
+      stream: true,
+      keep_alive: "10m",
+      options: {
+        num_ctx: parseInt(config.contextLength) || 8192,
+        temperature: parseFloat(config.temperature) || 0.7,
+        num_predict: -1, // Allow full response
+        top_k: 40,
+        top_p: 0.9,
+        repeat_penalty: 1.1, // Reduce repetition
+        num_thread: 8
       }
+    };
 
-      const fullPrompt = contextStr ? `CONTEXT:\n${contextStr}\n\nUSER: ${prompt}` : prompt;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120000); 
+    const response = await fetch(`${baseUrl}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify(requestBody)
+    });
 
-      const response = await fetch(`${baseUrl}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({ 
-          model: model || config.defaultModel, 
-          prompt: `[SYSTEM]${systemPromptFinal}\n\n[USER]${fullPrompt}`,
-          stream: true,
-          keep_alive: "10m", 
-          options: { 
-            num_ctx: parseInt(config.contextLength) || 8192, 
-            temperature: parseFloat(config.temperature) || 0.7,
-            num_threads: 8
-          }
-        })
-      });
+    clearTimeout(timeoutId);
 
-      clearTimeout(timeoutId);
-      if (!response.ok) throw new Error(`Ollama API error: ${response.statusText}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Ollama API error (${response.status}): ${errorText || response.statusText}`);
+    }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
+    // --- IMPROVED STREAMING PARSER ---
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let totalChunks = 0;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const json = JSON.parse(line);
-            if (json.response) win.webContents.send('ollama:chunk', json.response);
-            if (json.done) win.webContents.send('ollama:chunk', '[DONE]');
-          } catch (e) {}
-        }
-      }
-      if (buffer.trim()) {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        
         try {
-          const json = JSON.parse(buffer);
-          if (json.response) win.webContents.send('ollama:chunk', json.response);
-          if (json.done) win.webContents.send('ollama:chunk', '[DONE]');
-        } catch (e) {}
+          const json = JSON.parse(line);
+          
+          if (json.error) {
+            throw new Error(`Ollama error: ${json.error}`);
+          }
+          
+          if (json.response) {
+            mainWindow.webContents.send('ollama:chunk', json.response);
+            totalChunks++;
+          }
+          
+          if (json.done) {
+            console.log(`Stream complete: ${totalChunks} chunks received`);
+            mainWindow.webContents.send('ollama:chunk', '[DONE]');
+          }
+        } catch (parseError) {
+          console.error('JSON parse error:', parseError, 'Line:', line);
+        }
       }
-
-    } catch (error) { 
-      win.webContents.send('ollama:error', `Connection Error: ${error.message}`);
     }
-  });
 
-  // --- ROBUST JSON GENERATOR ---
-  ipcMain.handle('ollama:generate-json', async (e, { prompt, model, settings }) => { 
-    const config = settings || DEFAULT_SETTINGS; 
-    const baseUrl = config.ollamaUrl || "http://127.0.0.1:11434"; 
-    try { 
-      const response = await fetch(`${baseUrl}/api/generate`, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ 
-          model: model || config.defaultModel, 
-          prompt: prompt, 
-          format: 'json', 
-          stream: false, 
-          options: { temperature: 0.2 } 
-        }) 
-      }); 
-      
-      const data = await response.json(); 
-      let rawText = data.response.trim();
-      
-      // Strip markdown code blocks if present
-      if (rawText.startsWith('```json')) {
-        rawText = rawText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-      } else if (rawText.startsWith('```')) {
-        rawText = rawText.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    // Process any remaining buffer
+    if (buffer.trim()) {
+      try {
+        const json = JSON.parse(buffer);
+        if (json.error) {
+          throw new Error(`Ollama error: ${json.error}`);
+        }
+        if (json.response) {
+          mainWindow.webContents.send('ollama:chunk', json.response);
+        }
+        if (json.done) {
+          mainWindow.webContents.send('ollama:chunk', '[DONE]');
+        }
+      } catch (e) {
+        console.error('Final buffer parse error:', e);
       }
+    }
 
-      try { return JSON.parse(rawText); } 
-      catch { return []; } 
-    } catch (e) { return []; } 
-  });
-
-  ipcMain.handle('ollama:status', async (e, url) => { try { const r = await fetch(`${url || 'http://127.0.0.1:11434'}/api/tags`); if(r.ok) return true; } catch(e){} return false; });
-  ipcMain.handle('ollama:models', async (e, url) => { try { const r = await fetch(`${url || 'http://127.0.0.1:11434'}/api/tags`); const data = await r.json(); return data.models.map(m => m.name); } catch(e) { return []; } });
-  ipcMain.handle('project:add-url', async (e, { projectId, url }) => { try { const cheerio = loadCheerio(); const response = await fetch(url); const html = await response.text(); const $ = cheerio.load(html); $('script, style, nav, footer, iframe').remove(); const content = $('body').text().replace(/\s\s+/g, ' ').trim(); const filename = `web-${Date.now()}.txt`; await fs.promises.writeFile(path.join(getCachePath(), filename), content, 'utf-8'); const projectPath = path.join(getProjectsPath(), `${projectId}.json`); const projectData = JSON.parse(await fs.promises.readFile(projectPath, 'utf-8')); projectData.files.push({ path: url, name: $('title').text() || url, type: 'url', cacheFile: filename }); await fs.promises.writeFile(projectPath, JSON.stringify(projectData, null, 2)); return projectData.files; } catch (e) { throw new Error("Scrape Failed"); } });
-  ipcMain.handle('system:save-file', async (e, { content, filename }) => { const { filePath } = await dialog.showSaveDialog(win, { defaultPath: filename || 'untitled.txt', }); if (filePath) { await fs.promises.writeFile(filePath, content, 'utf-8'); return true; } return false; });
-  ipcMain.handle('project:update-settings', async (e, { id, systemPrompt }) => { const p = path.join(getProjectsPath(), `${id}.json`); if (fs.existsSync(p)) { const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); d.systemPrompt = systemPrompt; await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); return d; } return null; });
-  ipcMain.handle('project:list', async () => { const d = getProjectsPath(); const f = await fs.promises.readdir(d); const p = []; for (const x of f) { if(x.endsWith('.json')) p.push(JSON.parse(await fs.promises.readFile(path.join(d, x), 'utf-8'))); } return p; });
-  ipcMain.handle('project:create', async (e, { id, name }) => { const p = path.join(getProjectsPath(), `${id}.json`); const n = { id, name, files: [], systemPrompt: "", createdAt: new Date() }; await fs.promises.writeFile(p, JSON.stringify(n, null, 2)); return n; });
-  ipcMain.handle('project:add-files', async (e, projectId) => { const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] }); if (!r.canceled) { const p = path.join(getProjectsPath(), `${projectId}.json`); const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); const n = r.filePaths.map(x => ({ path: x, name: path.basename(x), type: path.extname(x).substring(1) })); d.files.push(...n.filter(f => !d.files.some(ex => ex.path === f.path))); await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); return d.files; } return null; });
-  ipcMain.handle('project:add-folder', async (e, projectId) => { const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'] }); if (!r.canceled && r.filePaths.length > 0) { const folderPath = r.filePaths[0]; const allFiles = await scanDirectory(folderPath); const p = path.join(getProjectsPath(), `${projectId}.json`); const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); const newFiles = allFiles.filter(f => !d.files.some(existing => existing.path === f.path)); d.files.push(...newFiles); d.rootPath = folderPath; await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); return d.files; } return null; });
-  ipcMain.handle('project:delete', async (e, id) => { await fs.promises.unlink(path.join(getProjectsPath(), `${id}.json`)); return true; });
-  ipcMain.handle('session:save', async (e, { id, title, messages, date }) => { const p = path.join(getSessionsPath(), `${id}.json`); let t = title; if(fs.existsSync(p)){ const ex = JSON.parse(await fs.promises.readFile(p,'utf-8')); if(ex.title && ex.title!=="New Chat" && (!title||title==="New Chat")) t = ex.title; } await fs.promises.writeFile(p, JSON.stringify({ id, title:t||"New Chat", messages, date }, null, 2)); return true; });
-  ipcMain.handle('session:rename', async (e, { id, title }) => { const p = path.join(getSessionsPath(), `${id}.json`); if(fs.existsSync(p)){ const c = JSON.parse(await fs.promises.readFile(p,'utf-8')); c.title = title; await fs.promises.writeFile(p, JSON.stringify(c,null,2)); return true; } return false; });
-  ipcMain.handle('session:list', async () => { const d = getSessionsPath(); const f = await fs.promises.readdir(d); const s = []; for(const x of f){ if(x.endsWith('.json')){ try{ const j=JSON.parse(await fs.promises.readFile(path.join(d,x),'utf-8')); s.push({id:j.id, title:j.title, date:j.date}); }catch(e){} } } return s.sort((a,b)=>new Date(b.date)-new Date(a.date)); });
-  ipcMain.handle('session:load', async (e, id) => JSON.parse(await fs.promises.readFile(path.join(getSessionsPath(), `${id}.json`), 'utf-8')));
-  ipcMain.handle('session:delete', async (e, id) => { await fs.promises.unlink(path.join(getSessionsPath(), `${id}.json`)); return true; });
-  ipcMain.handle('project:generate-graph', async (e, projectId) => { const p = path.join(getProjectsPath(), `${projectId}.json`); if (!fs.existsSync(p)) return { nodes: [], links: [] }; const projectData = JSON.parse(await fs.promises.readFile(p, 'utf-8')); const nodes = []; const links = []; projectData.files.forEach((file) => nodes.push({ id: file.name, group: file.type, path: file.path })); return { nodes, links }; });
-  ipcMain.handle('agent:deep-research', async (e, { projectId, url }) => { try { const cheerio = loadCheerio(); const response = await fetch(url); const html = await response.text(); const $ = cheerio.load(html); $('script, style, nav, footer, iframe').remove(); const content = $('body').text().replace(/\s\s+/g, ' ').trim().slice(0, 15000); const filename = `research-${Date.now()}.txt`; await fs.promises.writeFile(path.join(getCachePath(), filename), content, 'utf-8'); const projectPath = path.join(getProjectsPath(), `${projectId}.json`); const projectData = JSON.parse(await fs.promises.readFile(projectPath, 'utf-8')); projectData.files.push({ path: url, name: `[Research] ${$('title').text()}`, type: 'url', cacheFile: filename }); await fs.promises.writeFile(projectPath, JSON.stringify(projectData, null, 2)); return content; } catch (e) { throw new Error("Research Failed"); } });
-  ipcMain.handle('system:factory-reset', async () => { try { const del = async (d) => { if(fs.existsSync(d)){ for(const f of await fs.promises.readdir(d)){ const c=path.join(d,f); if((await fs.promises.lstat(c)).isDirectory()) await fs.promises.rm(c,{recursive:true}); else await fs.promises.unlink(c); } } }; await del(getSessionsPath()); await del(getProjectsPath()); await fs.promises.writeFile(getSettingsPath(), JSON.stringify(DEFAULT_SETTINGS)); return true; } catch(e){ return false; } });
-  ipcMain.handle('git:status', async (e, projectId) => { const p = path.join(getProjectsPath(), `${projectId}.json`); if (!fs.existsSync(p)) return null; const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); return d.rootPath ? await gitHandler.getStatus(d.rootPath) : null; });
-  ipcMain.handle('git:diff', async (e, projectId) => { const p = path.join(getProjectsPath(), `${projectId}.json`); const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); return d.rootPath ? await gitHandler.getDiff(d.rootPath) : ""; });
-  ipcMain.handle('calendar:load', async () => { try { if (fs.existsSync(getCalendarPath())) return JSON.parse(await fs.promises.readFile(getCalendarPath(), 'utf-8')); return []; } catch (e) { return []; } });
-  ipcMain.handle('calendar:save', async (e, events) => { try { await fs.promises.writeFile(getCalendarPath(), JSON.stringify(events, null, 2)); return true; } catch (e) { return false; } });
-
-  app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  } catch (error) {
+    console.error('Ollama stream error:', error);
+    
+    let errorMessage = 'Connection Error: ';
+    if (error.name === 'AbortError') {
+      errorMessage += 'Request timed out after 2 minutes';
+    } else if (error.message.includes('fetch')) {
+      errorMessage += 'Cannot connect to Ollama. Please check:\n1. Ollama is running (run: ollama serve)\n2. URL is correct in settings\n3. No firewall blocking port 11434';
+    } else {
+      errorMessage += error.message;
+    }
+    
+    mainWindow.webContents.send('ollama:error', errorMessage);
+  }
 });
-app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
+
+// --- ALSO UPDATE THE JSON GENERATOR FOR BETTER RELIABILITY ---
+ipcMain.handle('ollama:generate-json', async (e, { prompt, model, settings }) => {
+  const config = settings || DEFAULT_SETTINGS;
+  const baseUrl = config.ollamaUrl || "http://127.0.0.1:11434";
+  
+  try {
+    // Enhanced JSON prompt to prevent hallucination
+    const enhancedPrompt = `${prompt}
+
+CRITICAL: Respond with ONLY valid JSON. No explanations, no markdown, no extra text.
+If you cannot generate the requested JSON structure, return an empty array: []`;
+
+    const response = await fetch(`${baseUrl}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: model || config.defaultModel,
+        prompt: enhancedPrompt,
+        format: 'json',
+        stream: false,
+        options: {
+          temperature: 0.1, // Lower temperature for more consistent output
+          num_predict: 2000,
+          top_p: 0.9,
+          repeat_penalty: 1.1
+        }
+      })
+    });
+
+    if (!response.ok) {
+      console.error('JSON generation failed:', response.status, response.statusText);
+      return [];
+    }
+
+    const data = await response.json();
+    let rawText = data.response.trim();
+
+    // Strip markdown code blocks
+    if (rawText.startsWith('```json')) {
+      rawText = rawText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    } else if (rawText.startsWith('```')) {
+      rawText = rawText.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    }
+
+    // Additional cleanup
+    rawText = rawText.trim();
+
+    try {
+      const parsed = JSON.parse(rawText);
+      return parsed;
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      console.error('Raw text:', rawText);
+      return [];
+    }
+  } catch (error) {
+    console.error('JSON generation error:', error);
+    return [];
+  }
+});
