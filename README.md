@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="https://github.com/BryanParreira/OmniLab/icon.png" alt="OmniLab Logo" width="120" height="120">
+
 # OmniLab
 
 ### The Cognitive AI Operating System
