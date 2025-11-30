@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Maximize2, Minimize2, Download, Code, Eye, RefreshCw, FlaskConical, ChevronLeft, ChevronRight, BrainCircuit } from 'lucide-react';
+import { X, Maximize2, Minimize2, Download, Code, Eye, RefreshCw, FlaskConical, ChevronLeft, ChevronRight, BrainCircuit, Check } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { motion } from 'framer-motion';
@@ -9,8 +9,8 @@ const FlashcardDeck = ({ data, theme }) => {
   const [index, setIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
 
-  const nextCard = () => { setIsFlipped(false); setTimeout(() => setIndex((i) => (i + 1) % data.length), 200); };
-  const prevCard = () => { setIsFlipped(false); setTimeout(() => setIndex((i) => (i - 1 + data.length) % data.length), 200); };
+  const nextCard = () => { setIsFlipped(false); setTimeout(() => setIndex((i) => (i + 1) % data.length), 300); };
+  const prevCard = () => { setIsFlipped(false); setTimeout(() => setIndex((i) => (i - 1 + data.length) % data.length), 300); };
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -30,23 +30,27 @@ const FlashcardDeck = ({ data, theme }) => {
       </div>
 
       <div className="relative w-full max-w-lg aspect-[3/2] perspective-1000 cursor-pointer" onClick={() => setIsFlipped(!isFlipped)}>
-        <motion.div 
-          className="w-full h-full relative preserve-3d transition-all duration-500"
-          animate={{ rotateY: isFlipped ? 180 : 0 }}
-        >
+        {/* CSS-Based 3D Flip Container */}
+        <div className={`relative w-full h-full duration-500 transform-style-3d transition-transform ${isFlipped ? 'rotate-y-180' : ''}`}>
+          
           {/* FRONT */}
           <div className={`absolute inset-0 backface-hidden rounded-2xl p-8 flex flex-col items-center justify-center text-center border ${theme.primaryBorder} bg-[#0A0A0A] shadow-2xl`}>
              <div className="text-xs font-bold text-gray-500 mb-4 uppercase tracking-wider">Question</div>
-             <div className="text-xl font-medium text-gray-100">{data[index].front}</div>
+             <div className="w-full overflow-y-auto custom-scrollbar px-2 max-h-[70%]">
+               <div className="text-xl font-medium text-gray-100">{data[index].front}</div>
+             </div>
              <div className="absolute bottom-4 text-[10px] text-gray-600">Click or Space to Flip</div>
           </div>
           
-          {/* BACK */}
+          {/* BACK (Rotated 180deg) */}
           <div className={`absolute inset-0 backface-hidden rounded-2xl p-8 flex flex-col items-center justify-center text-center border ${theme.primaryBorder} ${theme.softBg} shadow-2xl rotate-y-180`}>
              <div className={`text-xs font-bold mb-4 uppercase tracking-wider ${theme.accentText}`}>Answer</div>
-             <div className="text-lg text-white leading-relaxed">{data[index].back}</div>
+             <div className="w-full overflow-y-auto custom-scrollbar px-2 max-h-[80%]">
+               <div className="text-lg text-white leading-relaxed whitespace-pre-wrap">{data[index].back}</div>
+             </div>
           </div>
-        </motion.div>
+
+        </div>
       </div>
 
       <div className="flex gap-4 mt-8">
@@ -60,7 +64,7 @@ const FlashcardDeck = ({ data, theme }) => {
   );
 };
 
-// --- SUB-COMPONENT: SYNTHESIS TABLE (The Synthesizer) ---
+// --- SUB-COMPONENT: SYNTHESIS TABLE ---
 const SynthesisTable = ({ data, theme }) => (
   <div className="h-full overflow-y-auto p-8 custom-scrollbar bg-[#050505]">
     <div className="max-w-4xl mx-auto">
@@ -103,7 +107,7 @@ export const LabBench = ({ artifact, onClose, theme }) => {
   const [key, setKey] = useState(0);
 
   // Determine artifact type
-  const isWeb = ['html', 'svg'].includes(artifact.language);
+  const isWeb = artifact.language && ['html', 'svg'].includes(artifact.language);
   const isFlashcards = artifact.type === 'flashcards';
   const isSynthesis = artifact.type === 'synthesis';
   
@@ -168,6 +172,17 @@ export const LabBench = ({ artifact, onClose, theme }) => {
           </div>
         )}
       </div>
+
+      {/* Styles for 3D Flip Effects */}
+      <style jsx>{`
+        .perspective-1000 { perspective: 1000px; }
+        .transform-style-3d { transform-style: preserve-3d; }
+        .backface-hidden { backface-visibility: hidden; }
+        .rotate-y-180 { transform: rotateY(180deg); }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+      `}</style>
     </motion.div>
   );
 };

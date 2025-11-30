@@ -69,7 +69,7 @@ export const LuminaProvider = ({ children }) => {
   const [activeArtifact, setActiveArtifact] = useState(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // --- CANVAS STATE (Optimized) ---
+  // --- CANVAS STATE ---
   const [canvasNodes, setCanvasNodes] = useState([]);
   const [canvasConnections, setCanvasConnections] = useState([]);
   
@@ -425,26 +425,57 @@ export const LuminaProvider = ({ children }) => {
 
   }, [calendarEvents, settings]);
 
+  // --- UPDATED FLASHPOINT FUNCTION ---
   const runFlashpoint = useCallback(async () => {
-    if (!activeProject || !currentModel) return;
+    if (!currentModel) {
+      alert("Please select an AI model first.");
+      return;
+    }
+
+    // Capture recent context
+    const context = messages
+      .slice(-6)
+      .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+      .join('\n\n')
+      .slice(0, 4000) || "General Knowledge";
+
     setIsLoading(true);
-    messagesDispatch({ type: 'ADD_USER_MESSAGE', payload: '/flashpoint (Generating Flashcards...)' });
+    
+    // FIX 1: Send a natural looking message
+    messagesDispatch({ type: 'ADD_USER_MESSAGE', payload: 'Generate a flashcard deck from our current study session.' });
+    
     try {
-      const prompt = `Generate 10 flashcards for study. Return JSON: { "cards": [{ "front": "Q", "back": "A" }] }`;
+      const prompt = `
+        CONTEXT:
+        ${context}
+        
+        TASK:
+        Generate 8-10 concise study flashcards based on the context above.
+        Keep answers clear and short.
+        Return ONLY valid JSON in this format: 
+        { "cards": [{ "front": "Question", "back": "Answer" }] }
+      `;
+
       const response = await window.lumina.generateJson(prompt, currentModel, settings);
+      
       let deck = [];
       if (Array.isArray(response)) deck = response;
       else if (response && Array.isArray(response.cards)) deck = response.cards;
+      
       if (deck.length > 0) {
         setActiveArtifact({ type: 'flashcards', language: 'json', content: deck });
         messagesDispatch({ type: 'ADD_ASSISTANT_MESSAGE' });
         messagesDispatch({ type: 'APPEND_TO_LAST', payload: 'Flashcards generated successfully.' });
-      } else throw new Error('Invalid JSON');
+      } else {
+        throw new Error('Invalid JSON structure returned');
+      }
     } catch (e) {
       messagesDispatch({ type: 'ADD_ASSISTANT_MESSAGE' });
-      messagesDispatch({ type: 'APPEND_TO_LAST', payload: 'Error: ' + e.message });
-    } finally { setIsLoading(false); }
-  }, [activeProject, currentModel, settings]);
+      messagesDispatch({ type: 'APPEND_TO_LAST', payload: 'Error generating flashcards: ' + e.message });
+    } finally { 
+      setIsLoading(false); 
+    }
+  }, [currentModel, settings, messages]);
 
   const runBlueprint = useCallback(async (description) => {
     if (!activeProject || !currentModel) return;
