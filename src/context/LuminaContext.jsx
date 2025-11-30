@@ -69,6 +69,29 @@ export const LuminaProvider = ({ children }) => {
   const [activeArtifact, setActiveArtifact] = useState(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
+  // --- CANVAS STATE (THE NEW FEATURE) ---
+  const [canvasNodes, setCanvasNodes] = useState([]);
+  
+  const addCanvasNode = useCallback((type, x, y, data = {}) => {
+    const newNode = {
+      id: uuidv4(),
+      type,
+      x,
+      y,
+      data: { title: 'New Item', content: '', ...data }
+    };
+    setCanvasNodes(prev => [...prev, newNode]);
+  }, []);
+
+  const updateCanvasNode = useCallback((id, updates) => {
+    setCanvasNodes(prev => prev.map(n => n.id === id ? { ...n, ...updates } : n));
+  }, []);
+
+  const deleteCanvasNode = useCallback((id) => {
+    setCanvasNodes(prev => prev.filter(n => n.id !== id));
+  }, []);
+  // --------------------------------------
+
   useEffect(() => {
     const init = async () => {
       try {
@@ -141,7 +164,6 @@ export const LuminaProvider = ({ children }) => {
     return () => clearTimeout(timer);
   }, [messages, sessionId, isLoading, isInitialized]);
 
-  // --- REFRESH GRAPH & GIT WHEN PROJECT CHANGES ---
   useEffect(() => {
     const refresh = async () => {
       if (activeProject) {
@@ -222,15 +244,10 @@ export const LuminaProvider = ({ children }) => {
     } catch (e) { console.error('Project settings update failed:', e); }
   }, [activeProject]);
 
-  // --- CRITICAL FIX: ENSURE FILES SYNC CORRECTLY ---
   const updateProjectFiles = useCallback((newFiles) => {
     if (!activeProject) return;
-    
-    // 1. Update the Active Project State immediately
     const updatedProject = { ...activeProject, files: newFiles };
     setActiveProject(updatedProject);
-    
-    // 2. Update the Projects List (The "Master Record")
     setProjects(prev => prev.map(p => p.id === activeProject.id ? updatedProject : p));
   }, [activeProject]);
 
@@ -245,7 +262,6 @@ export const LuminaProvider = ({ children }) => {
   const addFolder = useCallback(async () => { 
     if (!activeProject) return; 
     try { 
-      // This call returns the FULL list of files after adding the folder
       const newFiles = await window.lumina.addFolderToProject(activeProject.id); 
       if (newFiles) updateProjectFiles(newFiles); 
     } catch (e) { console.error('Add folder failed:', e); } 
@@ -289,22 +305,15 @@ export const LuminaProvider = ({ children }) => {
     }
   }, [activeProject, currentModel, settings, updateProjectFiles]);
 
-  // --- CORE AI SEND MESSAGE (WITH FIX) ---
   const sendMessage = useCallback((text) => {
     if (!text.trim() || isLoading || !currentModel) return;
-    
     messagesDispatch({ type: 'ADD_USER_MESSAGE', payload: text });
     messagesDispatch({ type: 'ADD_ASSISTANT_MESSAGE' });
     setIsLoading(true);
-
     try {
-      // FIX: LIVE LOOKUP
-      // Instead of trusting 'activeProject' directly (which might be stale),
-      // we look up the project in the master 'projects' list to get the latest files.
       let contextFiles = [];
       let systemPrompt = settings.systemPrompt;
       let pid = null;
-
       if (activeProject) {
         pid = activeProject.id;
         const liveProject = projects.find(p => p.id === activeProject.id);
@@ -312,18 +321,9 @@ export const LuminaProvider = ({ children }) => {
            contextFiles = liveProject.files || [];
            systemPrompt = liveProject.systemPrompt || settings.systemPrompt;
         } else {
-           // Fallback if lookup fails
            contextFiles = activeProject.files || [];
         }
       }
-
-      // Debug Log for You
-      console.log("Sending to AI:", {
-        model: currentModel,
-        fileCount: contextFiles.length,
-        firstFile: contextFiles[0]?.name
-      });
-
       window.lumina.sendPrompt(text, currentModel, contextFiles, systemPrompt, settings, pid);
     } catch (e) {
       console.error('Send message failed:', e);
@@ -336,6 +336,7 @@ export const LuminaProvider = ({ children }) => {
   const loadSession = useCallback(async (id) => { try { if (window.lumina) { const data = await window.lumina.loadSession(id); messagesDispatch({ type: 'SET_MESSAGES', payload: data.messages || [] }); setSessionId(data.id); setCurrentView('chat'); } } catch (e) { console.error('Load session failed:', e); } }, []);
   const deleteSession = useCallback(async (e, id) => { e.stopPropagation(); try { if (window.lumina) await window.lumina.deleteSession(id); if (id === sessionId) await startNewChat(); const updatedSessions = await window.lumina.getSessions(); setSessions(updatedSessions); } catch (e) { console.error('Delete session failed:', e); } }, [sessionId, startNewChat]);
 
+  // --- CALENDAR ACTIONS ---
   const addEvent = useCallback(async (title, date, type, priority = 'medium', notes = '', time = '') => {
     try {
       const newEvent = { id: uuidv4(), title, date, type, priority, notes, time, createdAt: new Date().toISOString() };
@@ -345,131 +346,137 @@ export const LuminaProvider = ({ children }) => {
     } catch (e) { console.error('Add event failed:', e); }
   }, [calendarEvents]);
 
-  const generateSchedule = useCallback(async (topic, targetDate, duration, goals, constraints) => {
-    if (!topic || !targetDate) { alert('Please provide a topic and target date'); return; }
-    setIsLoading(true);
+  const updateEvent = useCallback(async (id, updatedFields) => {
     try {
-      const today = new Date(); const target = new Date(targetDate); const daysAvailable = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
-      if (daysAvailable <= 0) { alert('Target date must be in the future'); setIsLoading(false); return; }
-      
-      const systemPrompt = settings.developerMode ? `You are an expert software project manager. Create a realistic development sprint plan.` : `You are an expert study planner. Create a realistic study schedule.`;
-      const userPrompt = `Create a detailed schedule for: "${topic}"\nTARGET DATE: ${targetDate}\nDURATION: ${duration}\nGOALS: ${goals}\nNOTES: ${constraints}\nReturn ONLY a JSON array.`;
+      const updated = calendarEvents.map(ev => 
+        ev.id === id ? { ...ev, ...updatedFields } : ev
+      );
+      setCalendarEvents(updated);
+      if (window.lumina) await window.lumina.saveCalendar(updated);
+    } catch (e) { console.error('Update event failed:', e); }
+  }, [calendarEvents]);
 
-      if (window.lumina && window.lumina.generateJson) {
-        const events = await window.lumina.generateJson(systemPrompt + '\n\n' + userPrompt, currentModel, settings);
-        let parsedEvents = [];
-        // Smart parse
-        if (Array.isArray(events)) parsedEvents = events;
-        else if (events && Array.isArray(events.events)) parsedEvents = events.events;
-        else if (events && Array.isArray(events.schedule)) parsedEvents = events.schedule;
+  const deleteEvent = useCallback(async (id) => {
+    try {
+      const updated = calendarEvents.filter(ev => ev.id !== id);
+      setCalendarEvents(updated);
+      if (window.lumina) await window.lumina.saveCalendar(updated);
+    } catch (e) { console.error('Delete event failed:', e); }
+  }, [calendarEvents]);
+
+  const generateSchedule = useCallback(async (topic, targetDate, duration, goals) => {
+    if (!topic || !targetDate) { alert('Please provide a topic and target date'); return; }
+    
+    // Smart loop to create a plan (No AI)
+    const start = new Date();
+    const end = new Date(targetDate);
+    const diffTime = Math.abs(end - start);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+    
+    const steps = [
+      { t: "Research & Outline", p: "medium" },
+      { t: "Core Work / Study", p: "high" },
+      { t: "Deep Dive / Draft", p: "high" },
+      { t: "Review & Refine", p: "medium" },
+      { t: "Final Polish", p: "low" }
+    ];
+
+    const newEvents = [];
+    const stepCount = Math.min(diffDays, steps.length);
+    const interval = Math.max(1, Math.floor(diffDays / stepCount));
+
+    for (let i = 0; i < stepCount; i++) {
+        const d = new Date(start);
+        d.setDate(d.getDate() + 1 + (i * interval));
+        const dateStr = d.toISOString().split('T')[0];
         
-        if (parsedEvents.length > 0) {
-          const newEvents = parsedEvents.map(e => ({ id: uuidv4(), title: e.title.substring(0, 100), date: e.date, type: e.type, priority: e.priority || 'medium', notes: e.notes || '', time: e.time || '', generatedByAI: true, createdAt: new Date().toISOString() }));
-          const updated = [...calendarEvents, ...newEvents];
-          setCalendarEvents(updated);
-          await window.lumina.saveCalendar(updated);
-          setCurrentView('chronos');
-        } else throw new Error('AI format invalid');
-      } else throw new Error('AI not available');
-    } catch (e) { console.error(e); alert('Failed to generate schedule.'); } finally { setIsLoading(false); }
-  }, [calendarEvents, currentModel, settings]);
+        if (d > end) break;
+
+        newEvents.push({
+            id: uuidv4(),
+            title: `${steps[i].t}: ${topic}`,
+            date: dateStr,
+            type: settings.developerMode ? 'task' : 'study',
+            priority: steps[i].p,
+            notes: `Goals: ${goals || 'Complete section'}`,
+            time: '10:00',
+            generatedByAI: false, 
+            createdAt: new Date().toISOString()
+        });
+    }
+    
+    newEvents.push({
+        id: uuidv4(),
+        title: `DEADLINE: ${topic}`,
+        date: targetDate,
+        type: 'deadline',
+        priority: 'high',
+        notes: 'Final Submission / Test',
+        time: '23:59',
+        createdAt: new Date().toISOString()
+    });
+
+    const updated = [...calendarEvents, ...newEvents];
+    setCalendarEvents(updated);
+    if(window.lumina) await window.lumina.saveCalendar(updated);
+    setCurrentView('chronos');
+
+  }, [calendarEvents, settings]);
 
   const runFlashpoint = useCallback(async () => {
     if (!activeProject || !currentModel) return;
     setIsLoading(true);
     messagesDispatch({ type: 'ADD_USER_MESSAGE', payload: '/flashpoint (Generating Flashcards...)' });
-    
     try {
-      const prompt = `Generate 10 flashcards for study.
-      Return a JSON object with this EXACT structure:
-      {
-        "cards": [
-          { "front": "Question", "back": "Answer" }
-        ]
-      }`;
-      
+      const prompt = `Generate 10 flashcards for study. Return JSON: { "cards": [{ "front": "Q", "back": "A" }] }`;
       const response = await window.lumina.generateJson(prompt, currentModel, settings);
-      
       let deck = [];
-      // ROBUST PARSING FOR SMALL MODELS
       if (Array.isArray(response)) deck = response;
       else if (response && Array.isArray(response.cards)) deck = response.cards;
-      else if (response && Array.isArray(response.flashcards)) deck = response.flashcards;
-
       if (deck.length > 0) {
         setActiveArtifact({ type: 'flashcards', language: 'json', content: deck });
         messagesDispatch({ type: 'ADD_ASSISTANT_MESSAGE' });
-        messagesDispatch({ type: 'APPEND_TO_LAST', payload: 'Flashcards generated successfully! Opening Lab Bench.' });
-      } else {
-        throw new Error('Invalid JSON format');
-      }
+        messagesDispatch({ type: 'APPEND_TO_LAST', payload: 'Flashcards generated successfully.' });
+      } else throw new Error('Invalid JSON');
     } catch (e) {
-      console.error(e);
       messagesDispatch({ type: 'ADD_ASSISTANT_MESSAGE' });
-      messagesDispatch({ type: 'APPEND_TO_LAST', payload: 'Failed to generate flashcards: ' + e.message });
-    } finally {
-      setIsLoading(false);
-    }
+      messagesDispatch({ type: 'APPEND_TO_LAST', payload: 'Error: ' + e.message });
+    } finally { setIsLoading(false); }
   }, [activeProject, currentModel, settings]);
 
   const runBlueprint = useCallback(async (description) => {
     if (!activeProject || !currentModel) return;
     setIsLoading(true);
     messagesDispatch({ type: 'ADD_USER_MESSAGE', payload: `Blueprint: ${description}` });
-
     try {
-      const prompt = `You are a Senior Architect. Output a JSON object with a "files" key containing the file structure for: ${description}.
-      
-      Example format:
-      {
-        "files": [
-          { "path": "src/utils.js", "content": "console.log('hi')" },
-          { "path": "src/components", "type": "folder" }
-        ]
-      }
-      
-      Make the code content fully functional. Return ONLY JSON.`;
-
+      const prompt = `Output JSON with "files" key for: ${description}.`;
       const response = await window.lumina.generateJson(prompt, currentModel, settings);
-      
       let structure = [];
-      // ROBUST PARSING FOR SMALL MODELS
       if (Array.isArray(response)) structure = response;
       else if (response && Array.isArray(response.files)) structure = response.files;
-      else if (response && Array.isArray(response.structure)) structure = response.structure;
-      
       if (structure.length > 0) {
         messagesDispatch({ type: 'ADD_ASSISTANT_MESSAGE' });
-        messagesDispatch({ type: 'APPEND_TO_LAST', payload: `Initializing Blueprint... Writing ${structure.length} items to disk...` });
-        
-        const results = await window.lumina.scaffoldProject(activeProject.id, structure);
-        const successCount = results.filter(r => r.success).length;
-        
-        messagesDispatch({ type: 'APPEND_TO_LAST', payload: `\n\n✅ Blueprint Complete: ${successCount} files created.` });
+        messagesDispatch({ type: 'APPEND_TO_LAST', payload: `Building ${structure.length} files...` });
+        await window.lumina.scaffoldProject(activeProject.id, structure);
+        messagesDispatch({ type: 'APPEND_TO_LAST', payload: `\n\n✅ Done.` });
         const updatedProjects = await window.lumina.getProjects();
         const updated = updatedProjects.find(p => p.id === activeProject.id);
         if (updated) setActiveProject(prev => ({ ...prev, files: updated.files }));
-        
-      } else {
-        throw new Error('AI did not return a valid file list.');
-      }
+      } else throw new Error('Invalid structure');
     } catch (e) {
-      console.error(e);
       messagesDispatch({ type: 'ADD_ASSISTANT_MESSAGE' });
-      messagesDispatch({ type: 'APPEND_TO_LAST', payload: 'Blueprint failed: ' + e.message });
-    } finally {
-      setIsLoading(false);
-    }
+      messagesDispatch({ type: 'APPEND_TO_LAST', payload: 'Error: ' + e.message });
+    } finally { setIsLoading(false); }
   }, [activeProject, currentModel, settings]);
 
   const runDiffDoctor = useCallback(async () => {
     if (!activeProject || !gitStatus || gitStatus.clean) return;
     setIsLoading(true);
-    messagesDispatch({ type: 'ADD_USER_MESSAGE', payload: 'Run Diff Doctor analysis.' });
+    messagesDispatch({ type: 'ADD_USER_MESSAGE', payload: 'Run Diff Doctor.' });
     try {
       const diff = await window.lumina.getGitDiff(activeProject.id);
-      if (!diff) throw new Error("No diff found");
-      const prompt = `Analyze this git diff. \n1. Write a professional Commit Message (Conventional Commits).\n2. List any potential bugs or security issues.\n\nDIFF:\n${diff.slice(0, 5000)}`;
+      if (!diff) throw new Error("No diff");
+      const prompt = `Analyze git diff. Write commit message and check bugs.\n\n${diff.slice(0, 5000)}`;
       window.lumina.sendPrompt(prompt, currentModel, [], activeProject.systemPrompt, settings);
     } catch (e) { setIsLoading(false); }
   }, [activeProject, gitStatus, currentModel, settings]);
@@ -490,8 +497,8 @@ export const LuminaProvider = ({ children }) => {
   const closeLabBench = useCallback(() => { setActiveArtifact(null); }, []);
 
   const contextValue = useMemo(() => ({
-    messages, sendMessage, isLoading, isOllamaRunning, currentModel, setCurrentModel, availableModels, refreshModels, settings, updateSettings, sessions, sessionId, startNewChat, loadSession, deleteSession, renameChat, factoryReset, projects, activeProject, setActiveProject, createProject, updateProjectSettings, addFiles, addFolder, addUrl, deleteProject, graphData, runDeepResearch, gitStatus, isSettingsOpen, openGlobalSettings, closeGlobalSettings, theme, currentView, setCurrentView, calendarEvents, addEvent, generateSchedule, isInitialized, initError, activeArtifact, openLabBench, closeLabBench, runFlashpoint, runBlueprint, runDiffDoctor, togglePodcast, isSpeaking
-  }), [messages, sendMessage, isLoading, isOllamaRunning, currentModel, availableModels, refreshModels, settings, updateSettings, sessions, sessionId, startNewChat, loadSession, deleteSession, renameChat, factoryReset, projects, activeProject, createProject, updateProjectSettings, addFiles, addFolder, addUrl, deleteProject, graphData, runDeepResearch, gitStatus, isSettingsOpen, openGlobalSettings, closeGlobalSettings, theme, currentView, calendarEvents, addEvent, generateSchedule, isInitialized, initError, activeArtifact, openLabBench, closeLabBench, runFlashpoint, runBlueprint, runDiffDoctor, togglePodcast, isSpeaking]);
+    messages, sendMessage, isLoading, isOllamaRunning, currentModel, setCurrentModel, availableModels, refreshModels, settings, updateSettings, sessions, sessionId, startNewChat, loadSession, deleteSession, renameChat, factoryReset, projects, activeProject, setActiveProject, createProject, updateProjectSettings, addFiles, addFolder, addUrl, deleteProject, graphData, runDeepResearch, gitStatus, isSettingsOpen, openGlobalSettings, closeGlobalSettings, theme, currentView, setCurrentView, calendarEvents, addEvent, updateEvent, deleteEvent, generateSchedule, isInitialized, initError, activeArtifact, openLabBench, closeLabBench, runFlashpoint, runBlueprint, runDiffDoctor, togglePodcast, isSpeaking, canvasNodes, addCanvasNode, updateCanvasNode, deleteCanvasNode
+  }), [messages, sendMessage, isLoading, isOllamaRunning, currentModel, availableModels, refreshModels, settings, updateSettings, sessions, sessionId, startNewChat, loadSession, deleteSession, renameChat, factoryReset, projects, activeProject, createProject, updateProjectSettings, addFiles, addFolder, addUrl, deleteProject, graphData, runDeepResearch, gitStatus, isSettingsOpen, openGlobalSettings, closeGlobalSettings, theme, currentView, calendarEvents, addEvent, updateEvent, deleteEvent, generateSchedule, isInitialized, initError, activeArtifact, openLabBench, closeLabBench, runFlashpoint, runBlueprint, runDiffDoctor, togglePodcast, isSpeaking, canvasNodes]);
 
   return <LuminaContext.Provider value={contextValue}>{children}</LuminaContext.Provider>;
 };

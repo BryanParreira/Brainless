@@ -1,6 +1,25 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { useLumina } from '../context/LuminaContext';
-import { Calendar, Plus, Sparkles, ChevronLeft, ChevronRight, Clock, Tag, AlertCircle, Download, Layout, Grid, Target, CheckCircle2 } from 'lucide-react';
+import { 
+  Calendar as CalendarIcon, 
+  Plus, 
+  Sparkles, 
+  ChevronLeft, 
+  ChevronRight, 
+  Clock, 
+  Tag, 
+  AlertCircle, 
+  Download, 
+  Layout, 
+  Grid, 
+  Target, 
+  CheckCircle2, 
+  Trash2, 
+  Edit3,
+  X,
+  AlignLeft,
+  ArrowLeft
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // --- Utility Functions ---
@@ -24,6 +43,12 @@ const formatDate = (date) => {
   return `${year}-${month}-${day}`;
 };
 
+const formatFriendlyDate = (dateStr) => {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+};
+
 const generateICS = (events) => {
   let icsContent = "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//OmniLab//Horizon//EN\n";
   events.forEach(event => {
@@ -42,7 +67,7 @@ const generateICS = (events) => {
 
 // --- Components ---
 
-const CalendarDay = React.memo(({ day, dateStr, dayEvents, isToday, theme, onDayClick }) => {
+const CalendarDay = React.memo(({ day, dateStr, dayEvents, isToday, theme, onDayClick, onEventClick }) => {
   if (!day) return <div className="bg-[#050505]/50 border border-white/[0.02]" />;
 
   return (
@@ -69,7 +94,8 @@ const CalendarDay = React.memo(({ day, dateStr, dayEvents, isToday, theme, onDay
         {dayEvents.map((event, idx) => (
           <div
             key={event.id || idx}
-            className={`text-[9px] px-2 py-1 rounded truncate font-medium ${getEventColor(event.type, theme.isDev)}`}
+            onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
+            className={`text-[9px] px-2 py-1 rounded truncate font-medium cursor-pointer hover:brightness-110 active:scale-95 transition-transform ${getEventColor(event.type, theme.isDev)}`}
             title={`${event.title}${event.time ? ` at ${event.time}` : ''}`}
           >
             {event.time && <span className="opacity-70 mr-1 font-mono">{event.time}</span>}
@@ -81,7 +107,7 @@ const CalendarDay = React.memo(({ day, dateStr, dayEvents, isToday, theme, onDay
   );
 });
 
-const WeekView = React.memo(({ currentDate, eventsByDate, theme }) => {
+const WeekView = React.memo(({ currentDate, eventsByDate, theme, onEventClick }) => {
   const weekDates = useMemo(() => {
     const days = [];
     const curr = new Date(currentDate);
@@ -143,7 +169,8 @@ const WeekView = React.memo(({ currentDate, eventsByDate, theme }) => {
                   return (
                     <div 
                       key={idx}
-                      className={`absolute left-1 right-1 p-1.5 rounded text-[9px] border leading-tight overflow-hidden ${getEventColor(ev.type, theme.isDev)}`}
+                      onClick={(e) => { e.stopPropagation(); onEventClick(ev); }}
+                      className={`absolute left-1 right-1 p-1.5 rounded text-[9px] border leading-tight overflow-hidden cursor-pointer hover:brightness-110 z-10 ${getEventColor(ev.type, theme.isDev)}`}
                       style={{ top: `${top}%`, height: '36px' }} 
                     >
                       <div className="font-bold truncate">{ev.title}</div>
@@ -159,7 +186,23 @@ const WeekView = React.memo(({ currentDate, eventsByDate, theme }) => {
   );
 });
 
-const EventModal = React.memo(({ isOpen, isPlanning, onClose, onAdd, onGenerate, settings, theme, isLoading, ...props }) => {
+const EventModal = React.memo(({ isOpen, isPlanning, isEditing, onClose, onAdd, onUpdate, onDelete, onGenerate, settings, theme, isLoading, ...props }) => {
+    // Local state to toggle between View Mode and Edit Mode
+    const [isEditingState, setIsEditingState] = useState(false);
+
+    // Reset state when modal opens
+    useEffect(() => {
+        if (isOpen) {
+            // If it's a new event or planning, default to editing/form mode.
+            // If it's an existing event (isEditing prop), default to View mode.
+            if (isPlanning || !isEditing) {
+                setIsEditingState(true);
+            } else {
+                setIsEditingState(false);
+            }
+        }
+    }, [isOpen, isPlanning, isEditing]);
+
     if (!isOpen) return null;
 
     const eventTypes = settings.developerMode 
@@ -170,91 +213,186 @@ const EventModal = React.memo(({ isOpen, isPlanning, onClose, onAdd, onGenerate,
       <AnimatePresence>
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
           <motion.div
-            initial={{ scale: 0.95, y: 10 }}
-            animate={{ scale: 1, y: 0 }}
-            exit={{ scale: 0.95, y: 10 }}
+            initial={{ scale: 0.95, y: 10, opacity: 0 }}
+            animate={{ scale: 1, y: 0, opacity: 1 }}
+            exit={{ scale: 0.95, y: 10, opacity: 0 }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-[#0F0F0F] border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh]"
+            className="bg-[#0F0F0F] border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh] overflow-hidden"
           >
-            {/* Header */}
-            <div className="flex items-center justify-between p-5 border-b border-white/10 bg-[#151515] rounded-t-2xl">
-               <h3 className="text-base font-bold text-white flex items-center gap-2">
-                {isPlanning ? (
-                    <><div className={`p-1.5 rounded-lg ${theme.softBg} ${theme.accentText}`}><Sparkles size={16} /></div> {settings.developerMode ? "AI Sprint Planner" : "AI Study Plan"}</>
-                ) : (
-                    <><div className="p-1.5 rounded-lg bg-white/10 text-white"><Plus size={16} /></div> New Event</>
-                )}
-                </h3>
-                <button onClick={onClose} className="text-gray-500 hover:text-white"><span className="sr-only">Close</span>✕</button>
-            </div>
             
-            {/* Scrollable Content */}
-            <div className="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-5">
-              {isPlanning ? (
+            {/* --- VIEW MODE (The "Event Page") --- */}
+            {!isEditingState && !isPlanning ? (
                 <>
-                  <div>
-                    <label className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2"><Tag size={12}/> Topic</label>
-                    <input autoFocus value={props.planTopic} onChange={(e) => props.setPlanTopic(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30" placeholder={settings.developerMode ? "e.g., Auth System" : "e.g., Calculus Midterm"} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2"><Target size={12}/> Target Date</label>
-                        <input type="date" value={props.planDate} onChange={(e) => props.setPlanDate(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30" />
-                      </div>
-                      <div>
-                        <label className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2"><Clock size={12}/> {settings.developerMode ? "Hours/Week" : "Hours/Day"}</label>
-                        <input type="number" value={props.planDuration} onChange={(e) => props.setPlanDuration(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30" placeholder="e.g., 4" />
-                      </div>
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2"><AlertCircle size={12}/> Goals / Notes</label>
-                    <textarea value={props.planGoals} onChange={(e) => props.setPlanGoals(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30 resize-none h-24" placeholder="Specific focus areas..." />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xs font-bold text-gray-400 mb-2">Type</label>
-                      <select value={props.newEventType} onChange={(e) => props.setNewEventType(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30">
-                        {eventTypes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs font-bold text-gray-400 mb-2">Priority</label>
-                      <select value={props.newEventPriority} onChange={(e) => props.setNewEventPriority(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30">
-                        <option value="low">Low</option>
-                        <option value="medium">Medium</option>
-                        <option value="high">High</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-gray-400 mb-2">Title</label>
-                    <input value={props.newEventTitle} onChange={(e) => props.setNewEventTitle(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30" placeholder="Task name..." />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xs font-bold text-gray-400 mb-2">Date</label>
-                      <input type="date" value={props.newEventDate} onChange={(e) => props.setNewEventDate(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-bold text-gray-400 mb-2">Time</label>
-                      <input type="time" value={props.newEventTime} onChange={(e) => props.setNewEventTime(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30" />
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
+                    {/* Hero Header */}
+                    <div className={`p-8 relative overflow-hidden ${theme.softBg} border-b ${theme.primaryBorder}`}>
+                        <div className="absolute top-4 right-4 flex gap-2">
+                             <button onClick={() => setIsEditingState(true)} className="p-2 bg-black/20 hover:bg-black/40 text-white rounded-lg backdrop-blur-sm transition-colors" title="Edit">
+                                <Edit3 size={16} />
+                             </button>
+                             <button onClick={onClose} className="p-2 bg-black/20 hover:bg-black/40 text-white rounded-lg backdrop-blur-sm transition-colors" title="Close">
+                                <X size={16} />
+                             </button>
+                        </div>
 
-            {/* Footer */}
-            <div className="p-5 border-t border-white/10 bg-[#151515] rounded-b-2xl flex justify-end gap-3">
-              <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors" disabled={isLoading}>Cancel</button>
-              <button onClick={isPlanning ? onGenerate : onAdd} disabled={isLoading || (isPlanning ? !props.planTopic : !props.newEventTitle)} className={`px-6 py-2 rounded-xl text-sm font-bold text-white transition-all flex items-center gap-2 ${isPlanning ? `${theme.primaryBg} hover:opacity-90` : 'bg-white text-black hover:bg-gray-200'}`}>
-                {isLoading ? <Sparkles size={14} className="animate-spin" /> : isPlanning ? <Sparkles size={14}/> : <CheckCircle2 size={14}/>}
-                {isPlanning ? (isLoading ? 'Generating...' : 'Generate Plan') : 'Save Event'}
-              </button>
-            </div>
+                        <div className="flex gap-2 mb-4">
+                            <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border ${theme.primaryBorder} ${theme.primaryText}`}>
+                                {props.newEventType}
+                            </span>
+                            {props.newEventPriority === 'high' && (
+                                <span className="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border border-red-500/30 text-red-400 bg-red-500/10 flex items-center gap-1">
+                                    <AlertCircle size={10} /> High Priority
+                                </span>
+                            )}
+                        </div>
+                        
+                        <h2 className="text-3xl font-bold text-white leading-tight mb-2">{props.newEventTitle}</h2>
+                        
+                        <div className="flex items-center gap-4 text-sm text-gray-300 font-medium">
+                            <div className="flex items-center gap-1.5">
+                                <CalendarIcon size={14} className={theme.primaryText} />
+                                {formatFriendlyDate(props.newEventDate)}
+                            </div>
+                            {props.newEventTime && (
+                                <div className="flex items-center gap-1.5">
+                                    <Clock size={14} className={theme.primaryText} />
+                                    {props.newEventTime}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Content Body */}
+                    <div className="p-6 bg-[#0F0F0F] flex-1 overflow-y-auto">
+                        {/* Notes Section */}
+                        <div className="mb-8">
+                            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                                <AlignLeft size={12} /> Notes & Details
+                            </h4>
+                            <div className="p-4 rounded-xl bg-[#151515] border border-white/5 text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
+                                {props.newEventNotes || "No additional notes provided for this event."}
+                            </div>
+                        </div>
+
+                        {/* Actions Footer */}
+                        <div className="flex justify-between items-center pt-6 border-t border-white/5">
+                             <button onClick={onDelete} className="text-red-400 hover:text-red-300 text-sm font-medium flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-red-500/10 transition-colors">
+                                <Trash2 size={16} /> Delete Event
+                             </button>
+                             <button onClick={onClose} className="text-gray-400 hover:text-white text-sm font-medium">
+                                Close
+                             </button>
+                        </div>
+                    </div>
+                </>
+            ) : (
+                /* --- EDIT/ADD FORM MODE --- */
+                <>
+                    {/* Header */}
+                    <div className="flex items-center justify-between p-5 border-b border-white/10 bg-[#151515]">
+                        <div className="flex items-center gap-3">
+                            {isEditing && !isPlanning && (
+                                <button onClick={() => setIsEditingState(false)} className="text-gray-500 hover:text-white transition-colors">
+                                    <ArrowLeft size={18} />
+                                </button>
+                            )}
+                            <h3 className="text-base font-bold text-white flex items-center gap-2">
+                                {isPlanning ? (
+                                    <><div className={`p-1.5 rounded-lg ${theme.softBg} ${theme.accentText}`}><Sparkles size={16} /></div> {settings.developerMode ? "Sprint Planner" : "Study Plan"}</>
+                                ) : (
+                                    <><div className="p-1.5 rounded-lg bg-white/10 text-white"><Edit3 size={16} /></div> {isEditing ? "Edit Details" : "New Event"}</>
+                                )}
+                            </h3>
+                        </div>
+                        <button onClick={onClose} className="text-gray-500 hover:text-white"><X size={18} /></button>
+                    </div>
+                    
+                    {/* Form Inputs */}
+                    <div className="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-5">
+                    {isPlanning ? (
+                        /* Planning Inputs */
+                        <>
+                        <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-xs text-blue-200">
+                            <strong className="block mb-1 flex items-center gap-1"><Sparkles size={10}/> Manual Generator</strong>
+                            Auto-generates a schedule based on your timeline.
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2"><Tag size={12}/> Topic</label>
+                            <input autoFocus value={props.planTopic} onChange={(e) => props.setPlanTopic(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30" placeholder="e.g. Calculus Final" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2"><Target size={12}/> Deadline</label>
+                                <input type="date" value={props.planDate} onChange={(e) => props.setPlanDate(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30" />
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2"><Clock size={12}/> Duration</label>
+                                <input type="number" value={props.planDuration} onChange={(e) => props.setPlanDuration(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30" placeholder="Hours" />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2"><AlertCircle size={12}/> Goals</label>
+                            <textarea value={props.planGoals} onChange={(e) => props.setPlanGoals(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30 resize-none h-24" placeholder="Specific areas to cover..." />
+                        </div>
+                        </>
+                    ) : (
+                        /* Standard Event Inputs */
+                        <>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                            <label className="text-xs font-bold text-gray-400 mb-2">Type</label>
+                            <select value={props.newEventType} onChange={(e) => props.setNewEventType(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30">
+                                {eventTypes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                            </select>
+                            </div>
+                            <div>
+                            <label className="text-xs font-bold text-gray-400 mb-2">Priority</label>
+                            <select value={props.newEventPriority} onChange={(e) => props.setNewEventPriority(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30">
+                                <option value="low">Low</option>
+                                <option value="medium">Medium</option>
+                                <option value="high">High</option>
+                            </select>
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-400 mb-2">Title</label>
+                            <input value={props.newEventTitle} onChange={(e) => props.setNewEventTitle(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30" placeholder="Event name..." />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                            <label className="text-xs font-bold text-gray-400 mb-2">Date</label>
+                            <input type="date" value={props.newEventDate} onChange={(e) => props.setNewEventDate(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30" />
+                            </div>
+                            <div>
+                            <label className="text-xs font-bold text-gray-400 mb-2">Time</label>
+                            <input type="time" value={props.newEventTime} onChange={(e) => props.setNewEventTime(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30" />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-400 mb-2">Notes</label>
+                            <textarea value={props.newEventNotes} onChange={(e) => props.setNewEventNotes(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-white/30 resize-none h-20" placeholder="Add details..." />
+                        </div>
+                        </>
+                    )}
+                    </div>
+
+                    {/* Footer */}
+                    <div className="p-5 border-t border-white/10 bg-[#151515] rounded-b-2xl flex justify-end gap-3">
+                    <button onClick={() => isEditing && !isPlanning ? setIsEditingState(false) : onClose()} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors" disabled={isLoading}>Cancel</button>
+                    <button 
+                        onClick={isPlanning ? onGenerate : (isEditing ? onUpdate : onAdd)} 
+                        disabled={isLoading || (isPlanning ? !props.planTopic : !props.newEventTitle)} 
+                        className={`px-6 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
+                            isPlanning 
+                                ? `${theme.primaryBg} text-white hover:opacity-90` 
+                                : 'bg-white !text-black hover:bg-gray-200' 
+                        }`}
+                    >
+                        {isLoading ? <Sparkles size={14} className="animate-spin" /> : isPlanning ? <Sparkles size={14}/> : <CheckCircle2 size={14}/>}
+                        {isPlanning ? (isLoading ? 'Creating Plan...' : 'Generate Plan') : (isEditing ? 'Save Changes' : 'Save Event')}
+                    </button>
+                    </div>
+                </>
+            )}
           </motion.div>
         </div>
       </AnimatePresence>
@@ -264,12 +402,13 @@ const EventModal = React.memo(({ isOpen, isPlanning, onClose, onAdd, onGenerate,
 // --- Main Page ---
 
 export const Chronos = React.memo(() => {
-  const { calendarEvents, addEvent, generateSchedule, theme, settings, isLoading } = useLumina();
+  const { calendarEvents, addEvent, updateEvent, deleteEvent, generateSchedule, theme, settings, isLoading } = useLumina();
   
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState('month');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPlanning, setIsPlanning] = useState(false);
+  const [editingEvent, setEditingEvent] = useState(null);
   
   // Form State
   const [newEventTitle, setNewEventTitle] = useState("");
@@ -277,6 +416,9 @@ export const Chronos = React.memo(() => {
   const [newEventType, setNewEventType] = useState(settings.developerMode ? 'task' : 'study');
   const [newEventTime, setNewEventTime] = useState("");
   const [newEventPriority, setNewEventPriority] = useState("medium");
+  const [newEventNotes, setNewEventNotes] = useState(""); 
+  
+  // Planning State
   const [planTopic, setPlanTopic] = useState("");
   const [planDate, setPlanDate] = useState("");
   const [planDuration, setPlanDuration] = useState("");
@@ -293,10 +435,62 @@ export const Chronos = React.memo(() => {
     });
   }, [viewMode]);
 
+  // --- Handlers ---
+
+  const openNewEvent = (dateStr) => {
+      setEditingEvent(null);
+      setIsPlanning(false);
+      setNewEventTitle("");
+      setNewEventDate(dateStr || formatDate(new Date()));
+      setNewEventTime("");
+      setNewEventNotes("");
+      setIsModalOpen(true);
+  };
+
+  const openEditEvent = (event) => {
+      setEditingEvent(event);
+      setIsPlanning(false);
+      setNewEventTitle(event.title);
+      setNewEventDate(event.date);
+      setNewEventType(event.type);
+      setNewEventTime(event.time || "");
+      setNewEventPriority(event.priority || "medium");
+      setNewEventNotes(event.notes || "");
+      setIsModalOpen(true);
+  };
+
   const handleAdd = () => {
     if (newEventTitle && newEventDate) {
-      addEvent(newEventTitle, newEventDate, newEventType, newEventPriority, "", newEventTime);
+      addEvent(newEventTitle, newEventDate, newEventType, newEventPriority, newEventNotes, newEventTime);
       closeModal();
+    }
+  };
+
+  const handleUpdate = () => {
+    if (editingEvent && updateEvent) {
+        updateEvent(editingEvent.id, {
+            title: newEventTitle,
+            date: newEventDate,
+            type: newEventType,
+            time: newEventTime,
+            priority: newEventPriority,
+            notes: newEventNotes
+        });
+        closeModal();
+    } else {
+        if(deleteEvent) deleteEvent(editingEvent.id);
+        addEvent(newEventTitle, newEventDate, newEventType, newEventPriority, newEventNotes, newEventTime);
+        closeModal();
+    }
+  };
+
+  const handleDelete = () => {
+    if (editingEvent && deleteEvent) {
+        deleteEvent(editingEvent.id);
+        closeModal();
+    } else {
+        console.error("Delete function missing");
+        closeModal();
     }
   };
 
@@ -308,8 +502,8 @@ export const Chronos = React.memo(() => {
   };
 
   const closeModal = () => {
-    setIsModalOpen(false); setIsPlanning(false);
-    setNewEventTitle(""); setNewEventDate(""); setNewEventTime(""); setPlanTopic(""); setPlanDate("");
+    setIsModalOpen(false); setIsPlanning(false); setEditingEvent(null);
+    setNewEventTitle(""); setNewEventDate(""); setNewEventTime(""); setPlanTopic(""); setPlanDate(""); setNewEventNotes("");
   };
 
   const eventsByDate = useMemo(() => {
@@ -322,7 +516,6 @@ export const Chronos = React.memo(() => {
 
   const todayStr = formatDate(new Date());
 
-  // Prepare Grid
   const calendarDays = useMemo(() => {
     const days = Array(firstDayOfMonth).fill(null);
     for (let i = 1; i <= daysInMonth; i++) days.push(i);
@@ -354,7 +547,7 @@ export const Chronos = React.memo(() => {
             <button onClick={() => { setIsPlanning(true); setIsModalOpen(true); }} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold text-white ${theme.primaryBg} hover:opacity-90 shadow-lg`} disabled={isLoading}>
                 <Sparkles size={12}/> {settings.developerMode ? "Sprint Plan" : "Study Plan"}
             </button>
-            <button onClick={() => { setIsPlanning(false); setIsModalOpen(true); setNewEventDate(formatDate(new Date())); }} className="flex items-center gap-2 px-3 py-1.5 bg-white text-black hover:bg-gray-200 rounded-lg text-xs font-bold">
+            <button onClick={() => openNewEvent(formatDate(new Date()))} className="flex items-center gap-2 px-3 py-1.5 bg-white text-black hover:bg-gray-200 rounded-lg text-xs font-bold">
                 <Plus size={12}/> Add
             </button>
           </div>
@@ -369,7 +562,7 @@ export const Chronos = React.memo(() => {
                     <div key={d} className="text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider">{d}</div>
                   ))}
                 </div>
-                {/* Responsive Grid that fills available space */}
+                {/* Responsive Grid */}
                 <div className="flex-1 grid grid-cols-7 grid-rows-5 gap-1">
                   {calendarDays.map((day, i) => {
                     const dateStr = day ? formatDate(new Date(currentDate.getFullYear(), currentDate.getMonth(), day)) : `empty-${i}`;
@@ -382,14 +575,20 @@ export const Chronos = React.memo(() => {
                             dayEvents={events} 
                             isToday={todayStr === dateStr} 
                             theme={{...theme, isDev: settings.developerMode}} 
-                            onDayClick={() => { if(day) { setNewEventDate(dateStr); setIsPlanning(false); setIsModalOpen(true); }}}
+                            onDayClick={() => { if(day) openNewEvent(dateStr); }}
+                            onEventClick={openEditEvent}
                         />
                     );
                   })}
                 </div>
             </div>
           ) : (
-             <WeekView currentDate={currentDate} eventsByDate={eventsByDate} theme={{...theme, isDev: settings.developerMode}} />
+             <WeekView 
+                currentDate={currentDate} 
+                eventsByDate={eventsByDate} 
+                theme={{...theme, isDev: settings.developerMode}} 
+                onEventClick={openEditEvent}
+             />
           )}
         </div>
       </div>
@@ -397,8 +596,11 @@ export const Chronos = React.memo(() => {
       <EventModal
         isOpen={isModalOpen}
         isPlanning={isPlanning}
+        isEditing={!!editingEvent}
         onClose={closeModal}
         onAdd={handleAdd}
+        onUpdate={handleUpdate}
+        onDelete={handleDelete}
         onGenerate={handleGenerate}
         settings={settings}
         theme={theme}
@@ -408,6 +610,7 @@ export const Chronos = React.memo(() => {
         newEventType={newEventType} setNewEventType={setNewEventType}
         newEventTime={newEventTime} setNewEventTime={setNewEventTime}
         newEventPriority={newEventPriority} setNewEventPriority={setNewEventPriority}
+        newEventNotes={newEventNotes} setNewEventNotes={setNewEventNotes}
         planTopic={planTopic} setPlanTopic={setPlanTopic}
         planDate={planDate} setPlanDate={setPlanDate}
         planDuration={planDuration} setPlanDuration={setPlanDuration}

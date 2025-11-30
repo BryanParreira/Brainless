@@ -5,18 +5,33 @@ import { Workspace } from "./components/Workspace";
 import { Cerebro } from "./components/Cerebro";
 import { ProjectDashboard } from "./components/ProjectDashboard";
 import { Chronos } from "./components/Chronos";
+import { Canvas } from "./components/Canvas"; // Added Canvas Import
 import { Settings } from "./components/Settings";
 import { LuminaProvider, useLumina } from "./context/LuminaContext";
 
 const MainContent = () => {
   const { currentView } = useLumina();
+  
   let content;
   switch (currentView) {
-    case 'cerebro': content = <Cerebro />; break;
-    case 'project-dashboard': content = <ProjectDashboard />; break;
-    case 'chronos': content = <Chronos />; break;
-    default: content = <Workspace />; break;
+    case 'cerebro': 
+      content = <Cerebro />; 
+      break;
+    case 'project-dashboard': 
+      content = <ProjectDashboard />; 
+      break;
+    case 'chronos': 
+      content = <Chronos />; 
+      break;
+    case 'canvas': 
+      content = <Canvas />; 
+      break;
+    case 'chat':
+    default: 
+      content = <Workspace />; 
+      break;
   }
+
   return (
     <div className="flex flex-col flex-1 h-full min-w-0 relative z-10 gap-2">
       <CommandBar />
@@ -33,15 +48,19 @@ const AppContent = () => {
   return (
     <>
       <div className="flex h-screen w-screen bg-void text-white overflow-hidden p-3 gap-3 relative selection:bg-indigo-500/30">
+        {/* Background Noise Texture Overlay */}
         <div className="bg-noise"></div>
         
+        {/* Sidebar Container */}
         <div className="w-[260px] flex flex-col z-20 h-full shrink-0">
           <Sidebar />
         </div>
         
+        {/* Main Application Area */}
         <MainContent />
       </div>
       
+      {/* Global Settings Modal */}
       <Settings isOpen={isSettingsOpen} onClose={closeGlobalSettings} />
     </>
   );

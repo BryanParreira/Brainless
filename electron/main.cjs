@@ -179,7 +179,7 @@ app.whenReady().then(() => {
     return results;
   });
 
-  // --- OLLAMA STREAM (FIXED: SEPARATES CHAT FROM CODE) ---
+  // --- OLLAMA STREAM ---
   ipcMain.on('ollama:stream-prompt', async (event, { prompt, model, contextFiles, systemPrompt, settings }) => {
     if (!win) return;
     
@@ -215,7 +215,7 @@ app.whenReady().then(() => {
        return;
     }
 
-    // 2. FIXED SYSTEM PROMPT FOR FORMATTING
+    // 2. SYSTEM PROMPT
     const groundingRules = `
 STRICT RULES:
 1. If [SOURCE_MATERIAL] is provided, base answers on it.
@@ -375,6 +375,69 @@ STRICT RULES:
     } catch(e) { return []; } 
   });
 
+  // --- AI CALENDAR PLANNER (THE MISSING PIECE) ---
+  ipcMain.handle('agent:calendar-plan', async (e, { topic, endDate, hoursPerDay, goals }) => {
+    try {
+      // 1. Get Config & Model
+      let config = DEFAULT_SETTINGS;
+      if (fs.existsSync(getSettingsPath())) {
+         try { config = { ...DEFAULT_SETTINGS, ...JSON.parse(await fs.promises.readFile(getSettingsPath(), 'utf-8')) }; } catch(e){}
+      }
+      
+      let baseUrl = config.ollamaUrl || "http://127.0.0.1:11434";
+      if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+      baseUrl = baseUrl.replace('localhost', '127.0.0.1');
+
+      // Auto-detect model if missing
+      let selectedModel = config.defaultModel;
+      if(!selectedModel) {
+          try {
+              const r = await net.fetch(`${baseUrl}/api/tags`);
+              const d = await r.json();
+              if(d.models && d.models.length > 0) selectedModel = d.models[0].name;
+          } catch(e){}
+      }
+      if(!selectedModel) return []; // Fail gracefully if no model
+
+      // 2. Strict JSON Prompt
+      const prompt = `
+        ACT AS: A Project Manager.
+        TASK: Create a detailed schedule for "${topic}" ending on ${endDate}.
+        CONSTRAINTS: ${hoursPerDay} hours/day. Focus: ${goals}.
+        OUTPUT: STRICT JSON Array ONLY. No markdown. No text.
+        FORMAT: [{"title": "Step Name", "date": "YYYY-MM-DD", "type": "task", "notes": "Details", "priority": "medium", "time": "09:00"}]
+        Create 5-10 actionable steps.
+      `;
+
+      // 3. Call AI
+      const response = await net.fetch(`${baseUrl}/api/generate`, {
+        method: 'POST',
+        body: JSON.stringify({
+          model: selectedModel,
+          prompt: prompt,
+          format: "json",
+          stream: false,
+          options: { temperature: 0.2 }
+        })
+      });
+
+      const data = await response.json();
+      
+      // 4. Clean JSON
+      let cleanJson = data.response.trim();
+      if (cleanJson.startsWith('```json')) cleanJson = cleanJson.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+      else if (cleanJson.startsWith('```')) cleanJson = cleanJson.replace(/^```\s*/, '').replace(/\s*```$/, '');
+      
+      const events = JSON.parse(cleanJson);
+      return Array.isArray(events) ? events : [];
+
+    } catch (e) {
+      console.error("AI Planner Failed:", e);
+      return [];
+    }
+  });
+
+  // --- CRUD HANDLERS ---
   ipcMain.handle('project:add-url', async (e, { projectId, url }) => { try { const cheerio = loadCheerio(); const response = await fetch(url); const html = await response.text(); const $ = cheerio.load(html); $('script, style, nav, footer, iframe').remove(); const content = $('body').text().replace(/\s\s+/g, ' ').trim(); const filename = `web-${Date.now()}.txt`; await fs.promises.writeFile(path.join(getCachePath(), filename), content, 'utf-8'); const projectPath = path.join(getProjectsPath(), `${projectId}.json`); const projectData = JSON.parse(await fs.promises.readFile(projectPath, 'utf-8')); projectData.files.push({ path: url, name: $('title').text() || url, type: 'url', cacheFile: filename }); await fs.promises.writeFile(projectPath, JSON.stringify(projectData, null, 2)); return projectData.files; } catch (e) { throw new Error("Scrape Failed"); } });
   ipcMain.handle('system:save-file', async (e, { content, filename }) => { const { filePath } = await dialog.showSaveDialog(win, { defaultPath: filename || 'untitled.txt', }); if (filePath) { await fs.promises.writeFile(filePath, content, 'utf-8'); return true; } return false; });
   ipcMain.handle('project:update-settings', async (e, { id, systemPrompt }) => { const p = path.join(getProjectsPath(), `${id}.json`); if (fs.existsSync(p)) { const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); d.systemPrompt = systemPrompt; await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); return d; } return null; });
