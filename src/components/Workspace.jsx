@@ -4,7 +4,6 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm'; 
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-// UPDATED: Imported Brain icon, removed logo import and Bot icon
 import { ArrowUp, User, StopCircle, Download, Check, Info, Code2, Eye, Sparkles, Wifi, WifiOff, FlaskConical, PenTool, BrainCircuit, GraduationCap, ShieldAlert, Zap, BookOpen, Layers, GitBranch, Brain } from 'lucide-react';
 import clsx from 'clsx'; 
 import { LabBench } from './LabBench';
@@ -19,6 +18,25 @@ const COMMAND_REGISTRY = {
   '/test': "Generate a Unit Test suite.",
   '/refactor': "Refactor this code to be cleaner."
 };
+
+// --- NEW COMPONENT: Thinking Indicator ---
+const ThinkingIndicator = ({ theme }) => (
+  <div className="flex items-center gap-3 py-1 pl-1 animate-in fade-in duration-300">
+    <div className={`p-1.5 rounded-lg ${theme.softBg} border ${theme.primaryBorder} flex items-center justify-center`}>
+      <Sparkles size={14} className={`${theme.accentText} animate-pulse`} /> 
+    </div>
+    <div className="flex flex-col justify-center h-full gap-1">
+      <span className={`text-[10px] font-bold tracking-wider uppercase ${theme.accentText} opacity-70`}>
+        Processing
+      </span>
+      <div className="flex gap-1">
+        <div className={`w-1 h-1 rounded-full ${theme.primaryBg} animate-bounce [animation-delay:-0.3s]`} />
+        <div className={`w-1 h-1 rounded-full ${theme.primaryBg} animate-bounce [animation-delay:-0.15s]`} />
+        <div className={`w-1 h-1 rounded-full ${theme.primaryBg} animate-bounce`} />
+      </div>
+    </div>
+  </div>
+);
 
 const CodeBlock = ({ language, children }) => {
   const { openLabBench, theme } = useLumina();
@@ -71,22 +89,23 @@ const MessageBubble = React.memo(({ msg, theme, fontSize, isStreaming }) => {
   }, [msg.content]);
   
   const isUser = msg.role === 'user';
-  if (!mainContent && !isStreaming) return null;
+  
+  // Logic: If content is empty AND we are streaming (and it's the assistant), show ThinkingIndicator.
+  const isEmpty = !mainContent || mainContent.trim() === '';
+  const showThinking = !isUser && isStreaming && isEmpty;
+
+  // If empty and NOT thinking, don't render anything (prevents empty bubbles)
+  if (isEmpty && !showThinking) return null;
 
   return (
     <div className={clsx("flex gap-6 group animate-fade-in mb-8", isUser ? "flex-row-reverse" : "")}>
       
-      {/* UPDATED AVATAR */}
+      {/* Avatar */}
       <div className={clsx(
         "w-9 h-9 shrink-0 rounded-xl flex items-center justify-center shadow-lg border overflow-hidden", 
         isUser ? "bg-white text-black border-white" : `bg-gradient-to-br ${theme.gradient} text-white border-white/10`
       )}>
-        {isUser ? (
-          <User size={18} />
-        ) : (
-          // Replaced image with clean Brain icon
-          <Brain size={18} className="text-white/90" />
-        )}
+        {isUser ? <User size={18} /> : <Brain size={18} className="text-white/90" />}
       </div>
 
       <div className={clsx("flex-1 min-w-0 max-w-3xl", isUser ? "text-right" : "")}>
@@ -95,19 +114,26 @@ const MessageBubble = React.memo(({ msg, theme, fontSize, isStreaming }) => {
           {!isUser && <span className={`text-[9px] ${theme.softBg} ${theme.accentText} px-1.5 py-0.5 rounded border border-white/10 uppercase tracking-wider font-bold`}>AI</span>}
         </div>
         <div className={clsx("leading-7 font-light tracking-wide", isUser ? "bg-[#1A1A1A] inline-block p-4 rounded-3xl rounded-tr-sm text-white/90 border border-white/10 shadow-md" : "text-gray-300")} style={{ fontSize: `${fontSize}px` }}>
-            <Markdown remarkPlugins={[remarkGfm]} components={{ 
-                code({node, inline, className, children, ...props}) { 
-                  const match = /language-(\w+)/.exec(className || ''); 
-                  return !inline && match ? <CodeBlock language={match[1]} children={children} /> : <code {...props} className="bg-white/10 px-1.5 py-0.5 rounded text-white font-mono text-[0.9em] border border-white/5 mx-1">{children}</code>;
-                },
-                blockquote: ({children}) => <Callout theme={theme}>{children}</Callout>,
-                table: ({children}) => <div className="overflow-x-auto my-6 border border-white/10 rounded-2xl"><table className="w-full text-left text-sm">{children}</table></div>,
-                th: ({children}) => <th className="bg-[#111] p-4 font-semibold border-b border-white/10 text-gray-200">{children}</th>,
-                td: ({children}) => <td className="p-4 border-b border-white/5 text-gray-400">{children}</td>,
-                a: ({href, children}) => <a href={href} target="_blank" rel="noopener noreferrer" className={`${theme.accentText} hover:underline underline-offset-4`}>{children}</a>
-              }}>
-              {mainContent}
-            </Markdown>
+            
+            {/* RENDER LOGIC: Show Thinking OR Markdown */}
+            {showThinking ? (
+              <ThinkingIndicator theme={theme} />
+            ) : (
+              <Markdown remarkPlugins={[remarkGfm]} components={{ 
+                  code({node, inline, className, children, ...props}) { 
+                    const match = /language-(\w+)/.exec(className || ''); 
+                    return !inline && match ? <CodeBlock language={match[1]} children={children} /> : <code {...props} className="bg-white/10 px-1.5 py-0.5 rounded text-white font-mono text-[0.9em] border border-white/5 mx-1">{children}</code>;
+                  },
+                  blockquote: ({children}) => <Callout theme={theme}>{children}</Callout>,
+                  table: ({children}) => <div className="overflow-x-auto my-6 border border-white/10 rounded-2xl"><table className="w-full text-left text-sm">{children}</table></div>,
+                  th: ({children}) => <th className="bg-[#111] p-4 font-semibold border-b border-white/10 text-gray-200">{children}</th>,
+                  td: ({children}) => <td className="p-4 border-b border-white/5 text-gray-400">{children}</td>,
+                  a: ({href, children}) => <a href={href} target="_blank" rel="noopener noreferrer" className={`${theme.accentText} hover:underline underline-offset-4`}>{children}</a>
+                }}>
+                {mainContent}
+              </Markdown>
+            )}
+
         </div>
       </div>
     </div>
@@ -184,12 +210,6 @@ export const Workspace = () => {
               </div>
             )}
             {messages.map((msg, idx) => <MessageBubble key={idx} msg={msg} theme={theme} fontSize={settings.fontSize} isStreaming={isLoading && idx === messages.length - 1} />)}
-            {isLoading && messages[messages.length-1]?.role !== 'assistant' && (
-               <div className="flex items-center gap-4 px-4 py-4 ml-[60px] animate-fade-in">
-                 <div className="flex space-x-1.5"><div className={`w-1.5 h-1.5 ${theme.primaryBg} rounded-full animate-bounce`}/><div className={`w-1.5 h-1.5 ${theme.primaryBg} rounded-full animate-bounce [animation-delay:0.1s]`}/><div className={`w-1.5 h-1.5 ${theme.primaryBg} rounded-full animate-bounce [animation-delay:0.2s]`}/></div>
-                 <span className={`text-[10px] ${theme.accentText} font-mono animate-pulse tracking-[0.2em] uppercase`}>Computing...</span>
-               </div>
-            )}
             <div ref={bottomRef} />
           </div>
         </div>

@@ -69,8 +69,9 @@ export const LuminaProvider = ({ children }) => {
   const [activeArtifact, setActiveArtifact] = useState(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // --- CANVAS STATE (THE NEW FEATURE) ---
+  // --- CANVAS STATE (Optimized) ---
   const [canvasNodes, setCanvasNodes] = useState([]);
+  const [canvasConnections, setCanvasConnections] = useState([]);
   
   const addCanvasNode = useCallback((type, x, y, data = {}) => {
     const newNode = {
@@ -89,9 +90,10 @@ export const LuminaProvider = ({ children }) => {
 
   const deleteCanvasNode = useCallback((id) => {
     setCanvasNodes(prev => prev.filter(n => n.id !== id));
+    setCanvasConnections(prev => prev.filter(c => c.from !== id && c.to !== id));
   }, []);
-  // --------------------------------------
 
+  // --- INITIALIZATION ---
   useEffect(() => {
     const init = async () => {
       try {
@@ -217,7 +219,8 @@ export const LuminaProvider = ({ children }) => {
     try {
       if (window.lumina) await window.lumina.resetSystem();
       setSessions([]); setProjects([]); messagesDispatch({ type: 'CLEAR_MESSAGES' });
-      setActiveProject(null); setCalendarEvents([]);
+      setActiveProject(null); setCalendarEvents([]); 
+      setCanvasNodes([]); setCanvasConnections([]);
       setSettings({ ollamaUrl: "http://127.0.0.1:11434", defaultModel: "", contextLength: 8192, temperature: 0.3, systemPrompt: "", developerMode: false, fontSize: 14, chatDensity: 'comfortable' });
       await startNewChat();
     } catch (e) { console.error('Factory reset failed:', e); }
@@ -367,7 +370,6 @@ export const LuminaProvider = ({ children }) => {
   const generateSchedule = useCallback(async (topic, targetDate, duration, goals) => {
     if (!topic || !targetDate) { alert('Please provide a topic and target date'); return; }
     
-    // Smart loop to create a plan (No AI)
     const start = new Date();
     const end = new Date(targetDate);
     const diffTime = Math.abs(end - start);
@@ -497,8 +499,10 @@ export const LuminaProvider = ({ children }) => {
   const closeLabBench = useCallback(() => { setActiveArtifact(null); }, []);
 
   const contextValue = useMemo(() => ({
-    messages, sendMessage, isLoading, isOllamaRunning, currentModel, setCurrentModel, availableModels, refreshModels, settings, updateSettings, sessions, sessionId, startNewChat, loadSession, deleteSession, renameChat, factoryReset, projects, activeProject, setActiveProject, createProject, updateProjectSettings, addFiles, addFolder, addUrl, deleteProject, graphData, runDeepResearch, gitStatus, isSettingsOpen, openGlobalSettings, closeGlobalSettings, theme, currentView, setCurrentView, calendarEvents, addEvent, updateEvent, deleteEvent, generateSchedule, isInitialized, initError, activeArtifact, openLabBench, closeLabBench, runFlashpoint, runBlueprint, runDiffDoctor, togglePodcast, isSpeaking, canvasNodes, addCanvasNode, updateCanvasNode, deleteCanvasNode
-  }), [messages, sendMessage, isLoading, isOllamaRunning, currentModel, availableModels, refreshModels, settings, updateSettings, sessions, sessionId, startNewChat, loadSession, deleteSession, renameChat, factoryReset, projects, activeProject, createProject, updateProjectSettings, addFiles, addFolder, addUrl, deleteProject, graphData, runDeepResearch, gitStatus, isSettingsOpen, openGlobalSettings, closeGlobalSettings, theme, currentView, calendarEvents, addEvent, updateEvent, deleteEvent, generateSchedule, isInitialized, initError, activeArtifact, openLabBench, closeLabBench, runFlashpoint, runBlueprint, runDiffDoctor, togglePodcast, isSpeaking, canvasNodes]);
+    messages, sendMessage, isLoading, isOllamaRunning, currentModel, setCurrentModel, availableModels, refreshModels, settings, updateSettings, sessions, sessionId, startNewChat, loadSession, deleteSession, renameChat, factoryReset, projects, activeProject, setActiveProject, createProject, updateProjectSettings, addFiles, addFolder, addUrl, deleteProject, graphData, runDeepResearch, gitStatus, isSettingsOpen, openGlobalSettings, closeGlobalSettings, theme, currentView, setCurrentView, calendarEvents, addEvent, updateEvent, deleteEvent, generateSchedule, isInitialized, initError, activeArtifact, openLabBench, closeLabBench, runFlashpoint, runBlueprint, runDiffDoctor, togglePodcast, isSpeaking, 
+    // CANVAS EXPORTS
+    canvasNodes, addCanvasNode, updateCanvasNode, deleteCanvasNode, canvasConnections, setCanvasConnections
+  }), [messages, sendMessage, isLoading, isOllamaRunning, currentModel, availableModels, refreshModels, settings, updateSettings, sessions, sessionId, startNewChat, loadSession, deleteSession, renameChat, factoryReset, projects, activeProject, createProject, updateProjectSettings, addFiles, addFolder, addUrl, deleteProject, graphData, runDeepResearch, gitStatus, isSettingsOpen, openGlobalSettings, closeGlobalSettings, theme, currentView, calendarEvents, addEvent, updateEvent, deleteEvent, generateSchedule, isInitialized, initError, activeArtifact, openLabBench, closeLabBench, runFlashpoint, runBlueprint, runDiffDoctor, togglePodcast, isSpeaking, canvasNodes, canvasConnections]);
 
   return <LuminaContext.Provider value={contextValue}>{children}</LuminaContext.Provider>;
 };
