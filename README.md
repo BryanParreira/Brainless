@@ -1,155 +1,260 @@
 <div align="center">
 
 # OmniLab
-### The Cognitive AI Operating System
 
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-black?style=for-the-badge&logo=linux)](https://github.com/BryanParreira/OmniLab/releases)
-[![License](https://img.shields.io/badge/license-Proprietary-blue?style=for-the-badge)](https://github.com/BryanParreira/OmniLab/blob/main/LICENSE)
-[![Local First](https://img.shields.io/badge/privacy-100%25%20Local-success?style=for-the-badge&logo=lock)](https://ollama.ai)
-[![Ollama](https://img.shields.io/badge/Powered%20By-Ollama-white?style=for-the-badge&logo=ollama&logoColor=black)](https://ollama.ai)
+### The Cognitive AI Operating System
 
 **Run powerful AI workflows locally. No clouds. No limits. Pure intelligence.**
 
-[**Download Latest**](https://github.com/BryanParreira/OmniLab/releases) • [**Read the Docs**](https://github.com/BryanParreira/OmniLab/wiki) • [**Report Bug**](https://github.com/BryanParreira/OmniLab/issues)
+[![License](https://img.shields.io/badge/license-Proprietary-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](https://github.com/BryanParreira/OmniLab/releases)
+[![Ollama](https://img.shields.io/badge/powered%20by-Ollama-black.svg)](https://ollama.ai)
+
+[Download](#-installation) • [Features](#-core-capabilities) • [Documentation](#-quick-start) • [Support](#-support)
 
 ---
-
-![OmniLab Interface](https://via.placeholder.com/1200x600/1e1e1e/ffffff?text=OmniLab+Interface+Preview)
 
 </div>
 
-## ⚡ Overview
+## 🎯 What is OmniLab?
 
-**OmniLab is not a chatbot.** It is a local-first workspace engineered for heavy intellectual lifting. Designed for engineers, architects, researchers, and writers who demand total privacy, zero latency, and raw cognitive power.
+OmniLab is not a chatbot—it's a **local-first cognitive workspace** engineered for heavy intellectual lifting. Built for engineers, architects, researchers, and writers who demand total privacy, zero latency, and uncompromising computational power.
 
-Every interaction stays on your machine. Every model runs locally through **Ollama**. Every decision remains yours.
+Every interaction stays on your machine. Every model runs locally through Ollama. Every decision remains yours.
 
----
+<br>
 
 ## 🚀 Quick Start
 
-### 1. Prerequisites
-Ensure you have the following installed before launching OmniLab:
-* **[Ollama](https://ollama.ai)** (Must be running on port `11434`)
-* **[Git](https://git-scm.com)** (Required for *Forge* mode features)
+### Prerequisites
 
-### 2. Installation
+Before installing OmniLab, ensure you have:
 
-| Platform | Download Link | Architecture |
-| :--- | :--- | :--- |
-| **macOS** | [**Download .dmg**](https://github.com/BryanParreira/OmniLab/releases) | Intel & Apple Silicon |
-| **Windows** | [**Download .exe**](https://github.com/BryanParreira/OmniLab/releases) | x86_64 & ARM64 |
-| **Linux** | [**Download .AppImage**](https://github.com/BryanParreira/OmniLab/releases) | Universal |
+- **[Ollama](https://ollama.ai)** (latest version, running on port 11434)
+- **[Git](https://git-scm.com)** (latest version, required for Forge mode)
 
-### 3. Launch
-1.  Install the binary.
-2.  OmniLab automatically detects your local Ollama instance.
-3.  Select **Forge** or **Nexus** mode to begin.
+### Installation
 
----
+<table>
+<tr>
+<td width="33%" align="center">
 
-## 💎 Core Architecture
+**macOS**
 
-OmniLab operates in two distinct cognitive modes, unified by the **Lab Bench**.
+[Download .dmg](https://github.com/BryanParreira/OmniLab/releases)
 
-### 🛠️ Forge Mode: Engineering & Architecture
+Intel & Apple Silicon
+
+</td>
+<td width="33%" align="center">
+
+**Windows**
+
+[Download .exe](https://github.com/BryanParreira/OmniLab/releases)
+
+x86_64 & ARM64
+
+</td>
+<td width="33%" align="center">
+
+**Linux**
+
+[Download .AppImage](https://github.com/BryanParreira/OmniLab/releases)
+
+Universal Binary
+
+</td>
+</tr>
+</table>
+
+**Setup Steps:**
+
+1. Download the appropriate binary for your platform
+2. Install by double-clicking the installer or executable
+3. OmniLab automatically detects Ollama on startup
+4. Select **Forge** or **Nexus** mode from the home screen
+
+<br>
+
+## ⚡ Core Capabilities
+
+### 🔧 Forge Mode: Engineering & Architecture
+
 *The thinking environment for builders—designed to move faster and ship better.*
 
-> **Blueprint Engine**
-> Scaffold entire project structures in seconds. Define folder hierarchies, boilerplate code, and configuration files through natural language. OmniLab writes the architecture directly to your filesystem.
+#### **Blueprint Engine**
+Scaffold entire project structures in seconds. Define folder hierarchies, boilerplate code, and configuration files through natural language. OmniLab writes the architecture directly to your filesystem.
 
-> **Diff Doctor**
-> Integrated with Git. Analyze uncommitted changes, surface bugs before they're committed, and auto-generate thoughtful commit messages.
+```
+Prompt: "Create a Next.js SaaS starter with TypeScript, Tailwind, and Stripe"
 
-> **Refactor**
-> Context-aware code cleaning. Improve readability and consistency without breaking functionality.
+Result:
+├── src/
+│   ├── pages/
+│   ├── components/
+│   └── lib/
+├── tailwind.config.ts
+├── stripe.config.ts
+└── package.json
+```
 
-### 🧠 Nexus Mode: Research & Writing
-*The thinking environment for synthesis—learn deeper and remember better.*
+#### **Diff Doctor**
+Integrated with Git. Analyze uncommitted changes, surface bugs before they're committed, and auto-generate thoughtful commit messages. Never push incomplete work again.
 
-> **Flashpoint**
-> Upload PDFs or notes. OmniLab instantly transforms them into spaced-repetition flashcards for active recall.
-
-> **Podcast Protocol**
-> Text-to-speech rendering turns long-form summaries and analyses into listenable audio. Learn while you commute.
-
-> **Deep Context**
-> Semantic vector search across document collections. Find connections across hundreds of pages in milliseconds.
-
-### ⚗️ The Lab Bench
-The centerpiece of the interface—a split-screen artifact viewer that eliminates window-switching.
-* ✓ Live HTML/JS previews rendered side-by-side with chat
-* ✓ Full-height code reviews without scrolling chaos
-* ✓ Seamless mode switching without leaving the workspace
+#### **Refactor**
+Context-aware code cleaning. Improve readability, consistency, and maintainability without breaking functionality.
 
 ---
+
+### 📚 Nexus Mode: Research & Writing
+
+*The thinking environment for synthesis—learn deeper and remember better.*
+
+#### **Flashpoint**
+Upload PDFs, research papers, or notes. OmniLab instantly transforms them into spaced-repetition flashcards. Build active recall workflows at scale.
+
+#### **Podcast Protocol**
+Complex synthesis deserves a voice. Text-to-speech rendering turns long-form summaries and analyses into listenable audio. Learn while you commute.
+
+#### **Deep Context**
+Semantic vector search across document collections. Find connections across hundreds of pages in milliseconds. Navigate ideas your linear brain might miss.
+
+---
+
+### 🧪 Lab Bench
+
+**The centerpiece of OmniLab's interface**—a split-screen artifact viewer that eliminates window-switching.
+
+- ✨ Live HTML/JS previews rendered side-by-side with chat
+- 📋 Full-height code reviews without scrolling chaos
+- 🎴 Flashcard studying while you work
+- 🔄 Seamless mode switching without leaving the workspace
+
+*The Lab Bench is where thinking and building converge.*
+
+<br>
 
 ## 🔒 Privacy & Security
 
-OmniLab is built on a single principle: **your data never leaves your machine.**
+OmniLab is built on a single principle: **your data never leaves your machine**.
 
-| Feature | Details |
-| :--- | :--- |
+| Feature | Guarantee |
+|:--------|:----------|
 | **100% Local** | Ollama runs on your hardware. No API calls. No analytics. No servers. |
-| **BYO Model** | Use Llama 3, Mistral, or any GGUF model via Ollama. |
+| **Proprietary Models** | Bring your own model via Ollama. Use Llama 2, Mistral, or any GGUF-compatible model. |
 | **Zero Telemetry** | OmniLab doesn't phone home. Ever. |
-| **Offline Capable** | Works fully offline after initial setup. |
+| **Offline Capable** | Works offline after launch (except for initial Ollama downloads). |
 
----
+*This is cognitive AI without compromise.*
 
-## 🧪 Usage Workflows
+<br>
 
-### The "Scaffold & Audit" Workflow (Forge)
-1.  **Prompt:** *"Create a Next.js SaaS starter with TypeScript, Tailwind, and Stripe."*
-2.  **Result:** OmniLab generates the directory tree:
-    ```bash
-    ├── src/
-    │   ├── components/
-    │   └── lib/
-    ├── tailwind.config.ts
-    └── package.json
-    ```
-3.  **Audit:** Run `git diff` inside OmniLab to have the AI review your changes before the first commit.
+## 📊 Comparison Matrix
 
-### The "Synthesis" Workflow (Nexus)
-1.  **Upload:** Drop a `research_paper.pdf` onto the Lab Bench.
-2.  **Generate:** OmniLab creates:
-    * 50 active-recall flashcards.
-    * A searchable vector index.
-    * A 15-minute audio summary (Podcast Protocol).
-3.  **Study:** Flip through cards on the left while chatting with the document on the right.
-
----
-
-## 🆚 Comparison
-
-| Feature | OmniLab | Generic Chatbot |
-| :--- | :---: | :---: |
+|  | OmniLab | Generic Chatbot |
+|:---|:---:|:---:|
 | **Local-First** | ✅ | ❌ |
-| **Code Scaffolding** | **Full Projects** | Snippets only |
-| **Git Integration** | **Native** | None |
-| **Flashcard System** | **Automatic** | Manual |
-| **Audio Synthesis** | **Built-in** | None |
-| **Privacy** | **Guaranteed** | Terms of Service |
+| **Code Scaffolding** | Full projects | Snippets only |
+| **Git Integration** | Native | None |
+| **Flashcard System** | Automatic | Manual/External |
+| **Audio Synthesis** | Built-in | Copy-paste required |
+| **Split-Screen Interface** | Native | Multiple windows |
+| **Privacy Guarantees** | Absolute | Terms of Service |
+
+<br>
+
+## 💼 Usage Examples
+
+### Forge Mode Workflow
+
+**Project Scaffolding**
+```
+Prompt: "Create a Next.js SaaS starter with TypeScript, Tailwind, and Stripe"
+```
+
+OmniLab scaffolds 20+ files instantly with production-ready configuration.
+
+**Pre-Commit Analysis**
+```bash
+git diff
+```
+
+OmniLab detects issues, flags concerns, and writes commit messages automatically.
 
 ---
 
-## 📜 License & Legal
+### Nexus Mode Workflow
+
+**Upload Documents**
+```
+Upload: research_paper.pdf + notes.md
+```
+
+**OmniLab Creates:**
+- ✓ 50 active-recall flashcards
+- ✓ Searchable vector index
+- ✓ 15-minute audio summary (Podcast Protocol)
+
+Open the Lab Bench, flip between flashcards and chat. Study while you think.
+
+<br>
+
+## 💻 System Requirements
+
+| Requirement | Specification |
+|:------------|:--------------|
+| **Operating System** | macOS 11+, Windows 10+, Ubuntu 20.04+ |
+| **RAM** | 8GB minimum (16GB recommended for large models) |
+| **Disk Space** | 20GB+ free space for models |
+| **Ollama** | Latest version, running on port 11434 |
+| **Git** | Latest version (Forge mode only) |
+
+<br>
+
+## 🔗 Resources
+
+- **[GitHub Repository](https://github.com/BryanParreira/OmniLab)** — Source & development
+- **[Downloads](https://github.com/BryanParreira/OmniLab/releases)** — Latest releases & builds
+- **[Issue Tracker](https://github.com/BryanParreira/OmniLab/issues)** — Bugs & feature requests
+
+<br>
+
+## 📄 License
 
 **OmniLab** is proprietary software.
 
-* **Copyright:** © 2024 Bryan Bernardo Parreira. All Rights Reserved.
-* **Usage:** Free for personal and commercial purposes.
-* **Restrictions:** Modification, reverse engineering, or redistribution is prohibited.
+```
+License:      Proprietary / Closed Source
+Copyright:    © 2024 Bryan Bernardo Parreira. All Rights Reserved
+Usage:        Free for personal and commercial purposes
+Restrictions: Modification, reverse engineering, or redistribution is prohibited
+```
 
-For support or feedback, please [open an issue](https://github.com/BryanParreira/OmniLab/issues).
+For licensing questions, please [open an issue](https://github.com/BryanParreira/OmniLab/issues).
+
+<br>
+
+## 🤝 Support
+
+Encounter a bug? Have a feature idea? 
+
+**[Open an issue on GitHub →](https://github.com/BryanParreira/OmniLab/issues)**
+
+OmniLab is built with meticulous attention to detail. Your feedback shapes the roadmap.
+
+<br>
 
 ---
 
 <div align="center">
 
 **Built by Bryan Bernardo Parreira**
-<br>
+
 *The operating system for cognitive work.*
+
+<br>
+
+[![GitHub stars](https://img.shields.io/github/stars/BryanParreira/OmniLab?style=social)](https://github.com/BryanParreira/OmniLab)
+[![GitHub forks](https://img.shields.io/github/forks/BryanParreira/OmniLab?style=social)](https://github.com/BryanParreira/OmniLab)
 
 </div>
