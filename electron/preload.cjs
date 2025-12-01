@@ -1,27 +1,38 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('lumina', {
-  // AI Core
+  // --- AI CORE ---
   checkOllamaStatus: (url) => ipcRenderer.invoke('ollama:status', url),
   getModels: (url) => ipcRenderer.invoke('ollama:models', url),
+  
+  // Updated to ensure contextFiles are passed through correctly
   sendPrompt: (prompt, model, contextFiles, systemPrompt, settings, projectId) => 
     ipcRenderer.send('ollama:stream-prompt', { prompt, model, contextFiles, systemPrompt, settings, projectId }),
+  
   generateJson: (prompt, model, settings) => ipcRenderer.invoke('ollama:generate-json', { prompt, model, settings }),
   
-  // Listeners
+  // --- LISTENERS (Crucial for UI updates) ---
   onResponseChunk: (cb) => {
     const sub = (_e, data) => cb(data);
     ipcRenderer.on('ollama:chunk', sub);
+    // Return cleanup function to prevent memory leaks
     return () => ipcRenderer.removeListener('ollama:chunk', sub);
   },
+
+  // NEW: Added this so you can see errors if PDF reading fails
+  onAIError: (cb) => {
+    const sub = (_e, message) => cb(message);
+    ipcRenderer.on('ollama:error', sub);
+    return () => ipcRenderer.removeListener('ollama:error', sub);
+  },
   
-  // System
+  // --- SYSTEM ---
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   saveGeneratedFile: (content, filename) => ipcRenderer.invoke('system:save-file', { content, filename }),
   resetSystem: () => ipcRenderer.invoke('system:factory-reset'),
 
-  // Projects & Files
+  // --- PROJECTS & FILES ---
   getProjects: () => ipcRenderer.invoke('project:list'),
   createProject: (data) => ipcRenderer.invoke('project:create', data),
   addFilesToProject: (id) => ipcRenderer.invoke('project:add-files', id),
@@ -30,17 +41,16 @@ contextBridge.exposeInMainWorld('lumina', {
   updateProjectSettings: (id, systemPrompt) => ipcRenderer.invoke('project:update-settings', { id, systemPrompt }),
   deleteProject: (id) => ipcRenderer.invoke('project:delete', id),
   
-  // --- THIS WAS MISSING! ---
+  // The missing function you asked about
   scaffoldProject: (projectId, structure) => ipcRenderer.invoke('project:scaffold', { projectId, structure }),
-  // ------------------------
 
-  // Advanced Features
+  // --- ADVANCED FEATURES ---
   generateGraph: (id) => ipcRenderer.invoke('project:generate-graph', id),
   runDeepResearch: (id, url) => ipcRenderer.invoke('agent:deep-research', { projectId: id, url }),
   getGitStatus: (id) => ipcRenderer.invoke('git:status', id),
   getGitDiff: (id) => ipcRenderer.invoke('git:diff', id),
 
-  // Sessions & Calendar
+  // --- SESSIONS & CALENDAR ---
   saveSession: (data) => ipcRenderer.invoke('session:save', data),
   getSessions: () => ipcRenderer.invoke('session:list'),
   loadSession: (id) => ipcRenderer.invoke('session:load', id),

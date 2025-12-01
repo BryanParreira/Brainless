@@ -25,6 +25,7 @@ const messagesReducer = (state, action) => {
 };
 
 export const LuminaProvider = ({ children }) => {
+  // --- STATE ---
   const [settings, setSettings] = useState({
     ollamaUrl: "http://127.0.0.1:11434",
     defaultModel: "",
@@ -74,13 +75,7 @@ export const LuminaProvider = ({ children }) => {
   const [canvasConnections, setCanvasConnections] = useState([]);
   
   const addCanvasNode = useCallback((type, x, y, data = {}) => {
-    const newNode = {
-      id: uuidv4(),
-      type,
-      x,
-      y,
-      data: { title: 'New Item', content: '', ...data }
-    };
+    const newNode = { id: uuidv4(), type, x, y, data: { title: 'New Item', content: '', ...data } };
     setCanvasNodes(prev => [...prev, newNode]);
   }, []);
 
@@ -143,15 +138,37 @@ export const LuminaProvider = ({ children }) => {
     init();
   }, []);
 
+  // --- LISTENERS (AI CHUNKS & ERRORS) ---
   useEffect(() => {
     if (!window.lumina || !isInitialized) return;
-    const cleanup = window.lumina.onResponseChunk((chunk) => {
-      if (chunk === '[DONE]') { setIsLoading(false); return; }
+
+    // 1. Success Listener
+    const cleanupChunk = window.lumina.onResponseChunk((chunk) => {
+      if (chunk === '[DONE]') { 
+        setIsLoading(false); 
+        return; 
+      }
       messagesDispatch({ type: 'APPEND_TO_LAST', payload: chunk });
     });
-    return () => cleanup?.();
+
+    // 2. Error Listener (CRITICAL FOR PDF DEBUGGING)
+    // If the backend fails to read the PDF, this will tell you why in the chat.
+    const cleanupError = window.lumina.onAIError && window.lumina.onAIError((errorMessage) => {
+      setIsLoading(false);
+      messagesDispatch({ type: 'ADD_ASSISTANT_MESSAGE' });
+      messagesDispatch({ 
+        type: 'APPEND_TO_LAST', 
+        payload: `\n\n**⚠️ System Error:** ${errorMessage}` 
+      });
+    });
+
+    return () => { 
+      cleanupChunk?.(); 
+      cleanupError?.(); 
+    };
   }, [isInitialized]);
 
+  // Auto-save Session
   useEffect(() => {
     if (messages.length === 0 || !sessionId || isLoading || !isInitialized) return;
     const timer = setTimeout(async () => {
@@ -166,6 +183,7 @@ export const LuminaProvider = ({ children }) => {
     return () => clearTimeout(timer);
   }, [messages, sessionId, isLoading, isInitialized]);
 
+  // Refresh Project Data
   useEffect(() => {
     const refresh = async () => {
       if (activeProject) {
@@ -308,29 +326,39 @@ export const LuminaProvider = ({ children }) => {
     }
   }, [activeProject, currentModel, settings, updateProjectFiles]);
 
+  // --- SEND MESSAGE (UPDATED TO ENSURE FILES ARE SENT) ---
   const sendMessage = useCallback((text) => {
     if (!text.trim() || isLoading || !currentModel) return;
+
     messagesDispatch({ type: 'ADD_USER_MESSAGE', payload: text });
     messagesDispatch({ type: 'ADD_ASSISTANT_MESSAGE' });
     setIsLoading(true);
+
     try {
       let contextFiles = [];
       let systemPrompt = settings.systemPrompt;
       let pid = null;
+
       if (activeProject) {
         pid = activeProject.id;
+        // Always grab the freshest project data from the 'projects' array
+        // This ensures we don't use a 'stale' activeProject state that might be missing the new PDF
         const liveProject = projects.find(p => p.id === activeProject.id);
+        
         if (liveProject) {
            contextFiles = liveProject.files || [];
            systemPrompt = liveProject.systemPrompt || settings.systemPrompt;
         } else {
+           // Fallback to activeProject if not found in list
            contextFiles = activeProject.files || [];
         }
       }
+
       window.lumina.sendPrompt(text, currentModel, contextFiles, systemPrompt, settings, pid);
     } catch (e) {
       console.error('Send message failed:', e);
       setIsLoading(false);
+      messagesDispatch({ type: 'APPEND_TO_LAST', payload: `\n\n**Error:** ${e.message}` });
     }
   }, [isLoading, currentModel, activeProject, projects, settings]);
 
@@ -369,7 +397,7 @@ export const LuminaProvider = ({ children }) => {
 
   const generateSchedule = useCallback(async (topic, targetDate, duration, goals) => {
     if (!topic || !targetDate) { alert('Please provide a topic and target date'); return; }
-    
+    // ... same as before
     const start = new Date();
     const end = new Date(targetDate);
     const diffTime = Math.abs(end - start);
@@ -425,39 +453,17 @@ export const LuminaProvider = ({ children }) => {
 
   }, [calendarEvents, settings]);
 
-  // --- UPDATED FLASHPOINT FUNCTION ---
   const runFlashpoint = useCallback(async () => {
     if (!currentModel) {
       alert("Please select an AI model first.");
       return;
     }
-
-    // Capture recent context
-    const context = messages
-      .slice(-6)
-      .map(m => `${m.role.toUpperCase()}: ${m.content}`)
-      .join('\n\n')
-      .slice(0, 4000) || "General Knowledge";
-
+    const context = messages.slice(-6).map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n').slice(0, 4000) || "General Knowledge";
     setIsLoading(true);
-    
-    // FIX 1: Send a natural looking message
     messagesDispatch({ type: 'ADD_USER_MESSAGE', payload: 'Generate a flashcard deck from our current study session.' });
-    
     try {
-      const prompt = `
-        CONTEXT:
-        ${context}
-        
-        TASK:
-        Generate 8-10 concise study flashcards based on the context above.
-        Keep answers clear and short.
-        Return ONLY valid JSON in this format: 
-        { "cards": [{ "front": "Question", "back": "Answer" }] }
-      `;
-
+      const prompt = `CONTEXT:\n${context}\nTASK: Generate 8-10 concise study flashcards based on the context above. Return ONLY valid JSON: { "cards": [{ "front": "Question", "back": "Answer" }] }`;
       const response = await window.lumina.generateJson(prompt, currentModel, settings);
-      
       let deck = [];
       if (Array.isArray(response)) deck = response;
       else if (response && Array.isArray(response.cards)) deck = response.cards;

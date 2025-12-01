@@ -7,12 +7,12 @@ const path = require('path');
 const fs = require('fs');
 const { createTray } = require('./tray.cjs');
 
+// Lazy load heavy dependencies
 const loadPdf = () => require('pdf-parse');
 const loadCheerio = () => require('cheerio');
 const loadGit = () => require('simple-git');
 
 // --- GLOBAL VARIABLES ---
-// Important: These must be global to prevent Garbage Collection
 let mainWindow;
 let tray = null; 
 
@@ -24,6 +24,7 @@ const getCachePath = () => path.join(getProjectsPath(), 'cache');
 const getSettingsPath = () => path.join(getUserDataPath(), 'settings.json');
 const getCalendarPath = () => path.join(getUserDataPath(), 'calendar.json');
 
+// Ensure directories exist
 [getSessionsPath(), getProjectsPath(), getCachePath()].forEach(dir => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
@@ -68,9 +69,10 @@ function createWindow() {
   return mainWindow;
 }
 
-// --- SMART FILE ENGINE ---
+// --- SMART FILE ENGINE (UPDATED FOR PDFS) ---
 async function readProjectFiles(projectFiles) {
-  const MAX_CONTEXT_CHARS = 32000; 
+  // 1. INCREASED LIMIT: Allows reading much larger projects (approx 128k chars)
+  const MAX_CONTEXT_CHARS = 128000; 
   let currentChars = 0;
   
   let context = "--- PROJECT FILE STRUCTURE (Index) ---\n";
@@ -85,6 +87,7 @@ async function readProjectFiles(projectFiles) {
     }
 
     try {
+      // Handle Web URLs
       if (file.type === 'url') {
         const filePath = path.join(getCachePath(), file.cacheFile);
         if (fs.existsSync(filePath)) {
@@ -101,23 +104,38 @@ async function readProjectFiles(projectFiles) {
 
       if (!fs.existsSync(file.path)) continue;
       const stats = await fs.promises.stat(file.path);
-      if (stats.size > 5 * 1024 * 1024) continue; 
+
+      // 2. INCREASED FILE SIZE LIMIT: 5MB -> 20MB (Crucial for PDFs)
+      if (stats.size > 20 * 1024 * 1024) {
+        console.warn(`Skipping large file: ${file.name}`);
+        continue; 
+      }
       
       let fileContent = "";
+      
+      // PDF Handling
       if (file.path.toLowerCase().endsWith('.pdf')) {
-        const pdf = loadPdf();
-        const dataBuffer = await fs.promises.readFile(file.path);
-        const data = await pdf(dataBuffer);
-        fileContent = data.text;
+        try {
+          const pdf = loadPdf();
+          const dataBuffer = await fs.promises.readFile(file.path);
+          const data = await pdf(dataBuffer);
+          fileContent = data.text;
+        } catch (pdfErr) {
+          console.error(`Failed to parse PDF ${file.name}:`, pdfErr);
+          fileContent = "[ERROR: Could not parse PDF text. It might be an image-only PDF.]";
+        }
       } 
+      // Standard Text Files
       else if (!['png','jpg','jpeg','gif','exe','bin','zip','iso','dll','dmg'].includes(file.type.toLowerCase())) {
         fileContent = await fs.promises.readFile(file.path, 'utf-8');
+        // Check for binary content
         if (fileContent.indexOf('\0') !== -1) fileContent = "";
       }
 
       if (fileContent) {
-        if (fileContent.length > 5000) {
-          fileContent = fileContent.slice(0, 5000) + `\n... [File ${file.name} Truncated] ...`;
+        // Truncate individual files if they are huge text files
+        if (fileContent.length > 10000) {
+          fileContent = fileContent.slice(0, 10000) + `\n... [File ${file.name} Truncated] ...`;
         }
         const entry = `\n>>> FILE: ${file.name}\n${fileContent}\n`;
         if (currentChars + entry.length < MAX_CONTEXT_CHARS) {
@@ -125,11 +143,14 @@ async function readProjectFiles(projectFiles) {
           currentChars += entry.length;
         }
       }
-    } catch (e) { console.warn(`Could not read file ${file.name}:`, e); }
+    } catch (e) { 
+      console.warn(`Could not read file ${file.name}:`, e); 
+    }
   }
   return context;
 }
 
+// Recursive Directory Scanner
 async function scanDirectory(dirPath, fileList = []) {
   try {
     const files = await fs.promises.readdir(dirPath, { withFileTypes: true });
@@ -156,15 +177,15 @@ const gitHandler = {
 
 app.whenReady().then(() => {
   const win = createWindow();
-  
-  // --- CRITICAL FIX: Assign tray to global variable ---
   tray = createTray(win); 
 
+  // Settings Handlers
   ipcMain.handle('settings:load', async () => {
     try { if (fs.existsSync(getSettingsPath())) { const data = JSON.parse(await fs.promises.readFile(getSettingsPath(), 'utf-8')); return { ...DEFAULT_SETTINGS, ...data }; } } catch (e) { } return DEFAULT_SETTINGS;
   });
   ipcMain.handle('settings:save', async (e, settings) => { await fs.promises.writeFile(getSettingsPath(), JSON.stringify(settings, null, 2)); return true; });
 
+  // Scaffold Handler
   ipcMain.handle('project:scaffold', async (e, { projectId, structure }) => {
     const p = path.join(getProjectsPath(), `${projectId}.json`);
     if (!fs.existsSync(p)) throw new Error("Project not found");
@@ -225,30 +246,30 @@ app.whenReady().then(() => {
 STRICT RULES:
 1. If [SOURCE_MATERIAL] is provided, base answers on it.
 2. If the answer is not in the context, say "I don't know."
-3. FORMATTING:
-   - Use plain text for normal conversation.
-   - Do NOT wrap normal sentences in markdown code blocks.
-   - ONLY use markdown code blocks (\`\`\`) for actual code snippets.
+3. FORMATTING: Use plain text. ONLY use markdown for code.
 `;
-
     const baseSystem = config.developerMode 
-      ? `You are OmniLab Forge, a Senior Engineer.\n${groundingRules}\nBe concise. If asked for code, output it immediately.` 
-      : `You are OmniLab Nexus, a Research Assistant.\n${groundingRules}\nBe helpful and clear.`;
+      ? `You are OmniLab Forge, a Senior Engineer.\n${groundingRules}\nBe concise.` 
+      : `You are OmniLab Nexus, a Research Assistant.\n${groundingRules}\nBe helpful.`;
       
     const systemPromptFinal = `${baseSystem}\n${systemPrompt || config.systemPrompt || ""}`;
 
-    // 3. Load Files
+    // 3. READ FILES (Call our updated function)
     let contextStr = "";
-    if (contextFiles && contextFiles.length > 0) {
-      contextStr = await readProjectFiles(contextFiles);
-      win.webContents.send('ollama:chunk', ''); 
+    try {
+      if (contextFiles && contextFiles.length > 0) {
+        contextStr = await readProjectFiles(contextFiles);
+        win.webContents.send('ollama:chunk', ''); 
+      }
+    } catch (readError) {
+      win.webContents.send('ollama:error', `File Read Error: ${readError.message}`);
     }
 
     const fullPrompt = contextStr 
       ? `[SOURCE_MATERIAL_START]\n${contextStr}\n[SOURCE_MATERIAL_END]\n\nQUESTION: ${prompt}` 
       : prompt;
 
-    // 4. Send Request
+    // 4. Send Request to Ollama
     const requestBody = JSON.stringify({ 
       model: selectedModel, 
       prompt: `[SYSTEM]${systemPromptFinal}\n\n[USER]${fullPrompt}`,
@@ -312,6 +333,7 @@ STRICT RULES:
     }
   });
 
+  // --- OLLAMA JSON ---
   ipcMain.handle('ollama:generate-json', async (e, { prompt, model, settings }) => { 
     const config = settings || DEFAULT_SETTINGS; 
     let baseUrl = config.ollamaUrl || "http://127.0.0.1:11434";
@@ -348,6 +370,7 @@ STRICT RULES:
     });
   });
 
+  // --- UTILS ---
   ipcMain.handle('ollama:status', async (e, url) => { 
     try {
       let target = url || 'http://127.0.0.1:11434';
@@ -378,68 +401,6 @@ STRICT RULES:
         request.end();
       });
     } catch(e) { return []; } 
-  });
-
-  // --- AI CALENDAR PLANNER ---
-  ipcMain.handle('agent:calendar-plan', async (e, { topic, endDate, hoursPerDay, goals }) => {
-    try {
-      // 1. Get Config & Model
-      let config = DEFAULT_SETTINGS;
-      if (fs.existsSync(getSettingsPath())) {
-         try { config = { ...DEFAULT_SETTINGS, ...JSON.parse(await fs.promises.readFile(getSettingsPath(), 'utf-8')) }; } catch(e){}
-      }
-      
-      let baseUrl = config.ollamaUrl || "http://127.0.0.1:11434";
-      if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
-      baseUrl = baseUrl.replace('localhost', '127.0.0.1');
-
-      // Auto-detect model if missing
-      let selectedModel = config.defaultModel;
-      if(!selectedModel) {
-          try {
-              const r = await net.fetch(`${baseUrl}/api/tags`);
-              const d = await r.json();
-              if(d.models && d.models.length > 0) selectedModel = d.models[0].name;
-          } catch(e){}
-      }
-      if(!selectedModel) return []; // Fail gracefully if no model
-
-      // 2. Strict JSON Prompt
-      const prompt = `
-        ACT AS: A Project Manager.
-        TASK: Create a detailed schedule for "${topic}" ending on ${endDate}.
-        CONSTRAINTS: ${hoursPerDay} hours/day. Focus: ${goals}.
-        OUTPUT: STRICT JSON Array ONLY. No markdown. No text.
-        FORMAT: [{"title": "Step Name", "date": "YYYY-MM-DD", "type": "task", "notes": "Details", "priority": "medium", "time": "09:00"}]
-        Create 5-10 actionable steps.
-      `;
-
-      // 3. Call AI
-      const response = await net.fetch(`${baseUrl}/api/generate`, {
-        method: 'POST',
-        body: JSON.stringify({
-          model: selectedModel,
-          prompt: prompt,
-          format: "json",
-          stream: false,
-          options: { temperature: 0.2 }
-        })
-      });
-
-      const data = await response.json();
-      
-      // 4. Clean JSON
-      let cleanJson = data.response.trim();
-      if (cleanJson.startsWith('```json')) cleanJson = cleanJson.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-      else if (cleanJson.startsWith('```')) cleanJson = cleanJson.replace(/^```\s*/, '').replace(/\s*```$/, '');
-      
-      const events = JSON.parse(cleanJson);
-      return Array.isArray(events) ? events : [];
-
-    } catch (e) {
-      console.error("AI Planner Failed:", e);
-      return [];
-    }
   });
 
   // --- CRUD HANDLERS ---
