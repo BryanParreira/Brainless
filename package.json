@@ -1,7 +1,7 @@
 {
   "name": "omnilab",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.10",
   "type": "module",
   "main": "electron/main.cjs",
   "description": "Advanced AI Research & Engineering Environment",
@@ -50,8 +50,8 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "YOUR_GITHUB_USERNAME",
-        "repo": "YOUR_REPO_NAME"
+        "owner": "BryanParreira",
+        "repo": "OmniLab"
       }
     ],
     "directories": {
