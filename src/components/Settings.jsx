@@ -3,7 +3,7 @@ import { useLumina } from '../context/LuminaContext';
 import { 
   X, Save, Server, Cpu, Brain, Sliders, Monitor, Type, Database, 
   Terminal, BookOpen, Shield, Zap, Check, ChevronDown, RefreshCw, 
-  AlertCircle, Sparkles, Info, Github, Bug, FileText, ExternalLink, Download, CheckCircle
+  Sparkles, Info, Github, Bug, FileText, ExternalLink, Download, CheckCircle, Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -93,10 +93,9 @@ export const Settings = ({ isOpen, onClose }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [showConfirmReset, setShowConfirmReset] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-
-  // Update State
-  const [updateStatus, setUpdateStatus] = useState('idle'); // idle, checking, available, downloading, downloaded, error, not-available
+  
+  // UPDATE STATE
+  const [updateStatus, setUpdateStatus] = useState('idle'); 
   const [updateMessage, setUpdateMessage] = useState('');
   const [downloadProgress, setDownloadProgress] = useState(0);
 
@@ -108,8 +107,9 @@ export const Settings = ({ isOpen, onClose }) => {
   useEffect(() => {
     if (window.lumina && window.lumina.onUpdateMessage) {
       const cleanup = window.lumina.onUpdateMessage((data) => {
-        setUpdateStatus(data.status);
-        setUpdateMessage(data.text);
+        // Only update if we get real data to avoid flickering
+        if(data.status) setUpdateStatus(data.status);
+        if(data.text) setUpdateMessage(data.text);
         if (data.progress) setDownloadProgress(Math.floor(data.progress));
       });
       return cleanup;
@@ -119,14 +119,11 @@ export const Settings = ({ isOpen, onClose }) => {
   const handleFormChange = useCallback((updates) => {
     setForm(prev => ({ ...prev, ...updates }));
     setHasChanges(true);
-    setSaveSuccess(false);
   }, []);
 
   const handleSave = useCallback(async () => {
     await updateSettings(form);
     setHasChanges(false);
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 2000);
   }, [form, updateSettings]);
 
   const handleClose = useCallback(() => {
@@ -153,7 +150,7 @@ export const Settings = ({ isOpen, onClose }) => {
     }
   }, [factoryReset, onClose]);
 
-  // Update Handlers
+  // --- UPDATE LOGIC (UI FORCE UPDATE) ---
   const checkForUpdates = () => {
     if (window.lumina && window.lumina.checkForUpdates) {
       setUpdateStatus('checking');
@@ -161,12 +158,16 @@ export const Settings = ({ isOpen, onClose }) => {
       window.lumina.checkForUpdates();
     } else {
       setUpdateStatus('error');
-      setUpdateMessage('Update API not found (Browser Mode?)');
+      setUpdateMessage('Update API unavailable.');
     }
   };
 
   const startDownload = () => {
      if (window.lumina && window.lumina.downloadUpdate) {
+        // FORCE UI UPDATE to "Downloading" immediately
+        setUpdateStatus('downloading');
+        setUpdateMessage('Starting download...');
+        setDownloadProgress(0);
         window.lumina.downloadUpdate();
      }
   };
@@ -177,9 +178,7 @@ export const Settings = ({ isOpen, onClose }) => {
     }
   };
 
-  const openLink = (url) => {
-    window.open(url, '_blank');
-  };
+  const openLink = (url) => { window.open(url, '_blank'); };
 
   if (!isOpen) return null;
 
@@ -225,21 +224,19 @@ export const Settings = ({ isOpen, onClose }) => {
             <AnimatePresence mode="wait">
               <motion.div key={activeTab} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.2 }} className="max-w-2xl">
                 
-                {/* --- CAPABILITIES TAB --- */}
                 {activeTab === 'capabilities' && (
                   <div className="space-y-8">
                     <div>
                       <h3 className="text-lg font-bold text-white mb-2">Operating State</h3>
                       <p className="text-sm text-gray-400 mb-6">Select the primary cognitive architecture.</p>
                       <div className="grid grid-cols-2 gap-4">
-                        <ModeCard active={!form.developerMode} onClick={() => handleFormChange({ developerMode: false })} icon={BookOpen} title="Nexus State" desc="Optimized for deep research, synthesis, and knowledge connection. Ideal for study and writing." theme={localTheme} />
-                        <ModeCard active={form.developerMode} onClick={() => handleFormChange({ developerMode: true })} icon={Zap} title="Forge State" desc="Unlocks full engineering capabilities, git integration, code analysis, and architecture tools." theme={localTheme} />
+                        <ModeCard active={!form.developerMode} onClick={() => handleFormChange({ developerMode: false })} icon={BookOpen} title="Nexus State" desc="Optimized for deep research, synthesis, and knowledge connection." theme={localTheme} />
+                        <ModeCard active={form.developerMode} onClick={() => handleFormChange({ developerMode: true })} icon={Zap} title="Forge State" desc="Unlocks full engineering capabilities and git integration." theme={localTheme} />
                       </div>
                     </div>
                   </div>
                 )}
 
-                {/* --- NEURAL TAB --- */}
                 {activeTab === 'neural' && (
                   <div className="space-y-8">
                     <Section title="Ollama Connection" icon={Server} theme={localTheme}>
@@ -270,7 +267,6 @@ export const Settings = ({ isOpen, onClose }) => {
                   </div>
                 )}
 
-                {/* --- INTERFACE TAB --- */}
                 {activeTab === 'interface' && (
                   <div className="space-y-8">
                     <Section title="Appearance" icon={Type} theme={localTheme}>
@@ -285,7 +281,6 @@ export const Settings = ({ isOpen, onClose }) => {
                   </div>
                 )}
 
-                {/* --- DATA TAB --- */}
                 {activeTab === 'data' && (
                   <div className="space-y-8">
                     <Section title="Danger Zone" icon={Shield} theme={localTheme}>
@@ -298,7 +293,6 @@ export const Settings = ({ isOpen, onClose }) => {
                   </div>
                 )}
 
-                {/* --- ABOUT TAB (UPDATED) --- */}
                 {activeTab === 'about' && (
                   <div className="space-y-8">
                     <div className="flex flex-col items-center justify-center p-8 text-center bg-white/5 rounded-2xl border border-white/5 mb-8">
@@ -309,59 +303,54 @@ export const Settings = ({ isOpen, onClose }) => {
                        <p className="text-sm text-gray-500 font-mono mt-1">v1.0.0 • {form.developerMode ? 'Forge' : 'Nexus'} Build</p>
                     </div>
 
-                    {/* NEW: UPDATE CHECKER SECTION */}
                     <Section title="Software Update" icon={RefreshCw} theme={localTheme}>
-                       <div className="p-6 rounded-2xl bg-[#0A0A0A] border border-white/10">
+                       <div className="p-6 rounded-2xl bg-[#0A0A0A] border border-white/10 relative overflow-hidden">
+                          {/* Progress Bar Background */}
+                          {updateStatus === 'downloading' && (
+                            <div className={`absolute bottom-0 left-0 h-1 bg-gradient-to-r ${localTheme.gradient} transition-all duration-300`} style={{ width: `${downloadProgress}%` }}></div>
+                          )}
+
                           <div className="flex items-center justify-between mb-4">
                              <div>
-                               <div className="text-sm font-bold text-white mb-1">Update Status</div>
+                               <div className="text-sm font-bold text-white mb-1 flex items-center gap-2">
+                                 Update Status
+                                 {updateStatus === 'downloading' && <span className="text-[10px] text-blue-400">({downloadProgress}%)</span>}
+                               </div>
                                <div className="text-xs text-gray-500">
                                  {updateMessage || "Check for the latest version."}
                                </div>
                              </div>
                              
-                             {/* Status Badges */}
-                             {updateStatus === 'downloading' && (
-                               <span className="text-xs px-2 py-1 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">Downloading {downloadProgress}%</span>
-                             )}
-                             {updateStatus === 'available' && (
-                               <span className="text-xs px-2 py-1 rounded bg-green-500/20 text-green-400 border border-green-500/30">New Version</span>
-                             )}
-                             {updateStatus === 'not-available' && (
-                               <span className="text-xs px-2 py-1 rounded bg-gray-700/50 text-gray-400">Up to date</span>
-                             )}
+                             {updateStatus === 'available' && <span className="text-xs px-2 py-1 rounded bg-green-500/20 text-green-400 border border-green-500/30 font-bold animate-pulse">New Version</span>}
                           </div>
 
-                          {/* Progress Bar */}
-                          {updateStatus === 'downloading' && (
-                            <div className="w-full bg-gray-800 h-1.5 rounded-full mb-4 overflow-hidden">
-                               <div 
-                                 className={`h-full bg-gradient-to-r ${localTheme.gradient}`} 
-                                 style={{ width: `${downloadProgress}%` }}
-                               ></div>
-                            </div>
-                          )}
-
-                          {/* Actions */}
                           <div className="flex gap-3">
                              {/* Check Button */}
                              {updateStatus !== 'downloading' && updateStatus !== 'downloaded' && (
                                <button 
                                  onClick={checkForUpdates}
                                  disabled={updateStatus === 'checking'}
-                                 className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${updateStatus === 'checking' ? 'bg-white/5 text-gray-500' : 'bg-white/10 hover:bg-white/20 text-white'}`}
+                                 className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${updateStatus === 'checking' ? 'bg-white/5 text-gray-500' : 'bg-white/10 hover:bg-white/20 text-white'}`}
                                >
+                                 {updateStatus === 'checking' && <Loader2 size={12} className="animate-spin" />}
                                  {updateStatus === 'checking' ? 'Checking...' : 'Check for Updates'}
                                </button>
                              )}
 
-                             {/* Download Button (If available and autoDownload is false) */}
+                             {/* Download Button */}
                              {updateStatus === 'available' && (
                                <button 
                                  onClick={startDownload}
-                                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r ${localTheme.gradient} shadow-lg`}
+                                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r ${localTheme.gradient} shadow-lg hover:brightness-110 active:scale-95 transition-all`}
                                >
                                  <Download size={14} /> Download Update
+                               </button>
+                             )}
+
+                             {/* Downloading State */}
+                             {updateStatus === 'downloading' && (
+                               <button disabled className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-gray-400 bg-white/5 border border-white/5 cursor-not-allowed">
+                                 <Loader2 size={14} className="animate-spin text-blue-400" /> Downloading...
                                </button>
                              )}
 

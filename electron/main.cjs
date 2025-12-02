@@ -1,26 +1,26 @@
 const { app, BrowserWindow, ipcMain, shell, dialog, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { createTray } = require('./tray.cjs'); // Ensure this file exists or remove if unused
+const { createTray } = require('./tray.cjs'); 
 const { autoUpdater } = require("electron-updater");
 const log = require('electron-log');
 
-// --- 1. CONFIGURATION & LOGGING ---
+// --- 1. LOGGING & UPDATER CONFIG ---
 log.transports.file.level = 'info';
 autoUpdater.logger = log;
-autoUpdater.autoDownload = false;
+autoUpdater.autoDownload = false; // We manually trigger download
 autoUpdater.autoInstallOnAppQuit = true;
 
-// Lazy Load Heavy Dependencies (Optimizes Startup)
+// --- 2. LAZY LOAD HEAVY DEPENDENCIES ---
 const loadPdf = () => require('pdf-parse');
 const loadCheerio = () => require('cheerio');
 const loadGit = () => require('simple-git');
 
-// Global References
+// Global Vars
 let mainWindow;
 let tray = null; 
 
-// --- 2. FILE SYSTEM PATHS ---
+// --- 3. PATHS & DIRS ---
 const getUserDataPath = () => app.getPath('userData');
 const getSessionsPath = () => path.join(getUserDataPath(), 'sessions');
 const getProjectsPath = () => path.join(getUserDataPath(), 'projects');
@@ -28,7 +28,7 @@ const getCachePath = () => path.join(getProjectsPath(), 'cache');
 const getSettingsPath = () => path.join(getUserDataPath(), 'settings.json');
 const getCalendarPath = () => path.join(getUserDataPath(), 'calendar.json');
 
-// Initialize Directories
+// Ensure directories
 [getSessionsPath(), getProjectsPath(), getCachePath()].forEach(dir => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
@@ -45,7 +45,7 @@ const DEFAULT_SETTINGS = {
   chatDensity: 'comfortable'
 };
 
-// --- 3. WINDOW MANAGEMENT ---
+// --- 4. WINDOW CREATION ---
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -53,13 +53,13 @@ function createWindow() {
     backgroundColor: '#030304',
     show: false,
     titleBarStyle: 'hiddenInset',
-    vibrancy: 'ultra-dark', // MacOS glass effect
+    vibrancy: 'ultra-dark',
     visualEffectState: 'active',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false // Required for some local integrations
+      sandbox: false
     },
   });
 
@@ -70,31 +70,52 @@ function createWindow() {
   }
   
   mainWindow.once('ready-to-show', () => mainWindow.show());
-  
-  // External Link Handler
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => { 
-    shell.openExternal(url); 
-    return { action: 'deny' }; 
-  });
-  
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
   return mainWindow;
 }
 
-// --- 4. AUTO UPDATER LOGIC ---
+// --- 5. UPDATER LOGIC (FIXED) ---
 function setupUpdater() {
-  ipcMain.on('check-for-updates', () => { if (app.isPackaged) autoUpdater.checkForUpdates(); });
-  ipcMain.on('download-update', () => { autoUpdater.downloadUpdate(); });
+  ipcMain.on('check-for-updates', () => {
+    if (!app.isPackaged) {
+      mainWindow?.webContents.send('update-message', { status: 'error', text: 'Updates disabled in Dev Mode' });
+      return;
+    }
+    autoUpdater.checkForUpdates();
+  });
+
+  ipcMain.on('download-update', () => {
+    autoUpdater.downloadUpdate().catch(err => {
+      log.error("Download Error:", err);
+      mainWindow?.webContents.send('update-message', { status: 'error', text: 'Download failed. Check logs.' });
+    });
+  });
+
   ipcMain.on('quit-and-install', () => { autoUpdater.quitAndInstall(); });
-  
-  autoUpdater.on('update-available', (info) => mainWindow?.webContents.send('update-message', { status: 'available', text: `Version ${info.version} available!` }));
+
+  autoUpdater.on('checking-for-update', () => mainWindow?.webContents.send('update-message', { status: 'checking', text: 'Checking...' }));
+  autoUpdater.on('update-available', (info) => mainWindow?.webContents.send('update-message', { status: 'available', text: `Version ${info.version} available!`, version: info.version }));
   autoUpdater.on('update-not-available', () => mainWindow?.webContents.send('update-message', { status: 'not-available', text: 'You are on the latest version.' }));
-  autoUpdater.on('download-progress', (p) => mainWindow?.webContents.send('update-message', { status: 'downloading', progress: p.percent }));
-  autoUpdater.on('update-downloaded', () => mainWindow?.webContents.send('update-message', { status: 'downloaded', text: 'Ready to install.' }));
-  autoUpdater.on('error', (err) => { log.error(err); mainWindow?.webContents.send('update-message', { status: 'error', text: 'Update failed.' }); });
+  
+  autoUpdater.on('download-progress', (progressObj) => {
+    mainWindow?.webContents.send('update-message', { 
+      status: 'downloading', 
+      text: 'Downloading update...', 
+      progress: progressObj.percent 
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    mainWindow?.webContents.send('update-message', { status: 'downloaded', text: 'Ready to install.' });
+  });
+  
+  autoUpdater.on('error', (err) => {
+    log.error(err);
+    mainWindow?.webContents.send('update-message', { status: 'error', text: 'Update failed.' });
+  });
 }
 
-// --- 5. SMART CONTEXT ENGINE (CRITICAL FOR CHAT) ---
-// This reads files, parses PDFs, and prepares text for the LLM
+// --- 6. SMART CONTEXT ENGINE (READS FILES/PDFS) ---
 async function readProjectFiles(projectFiles) {
   const MAX_CONTEXT_CHARS = 128000; 
   let currentChars = 0;
@@ -111,12 +132,11 @@ async function readProjectFiles(projectFiles) {
     }
 
     try {
-      // A. Handle Web URLs (Cached content)
+      // 1. Handle Web URLs (Deep Research Cache)
       if (file.type === 'url') {
         const filePath = path.join(getCachePath(), file.cacheFile);
         if (fs.existsSync(filePath)) {
            let content = await fs.promises.readFile(filePath, 'utf-8');
-           // Truncate huge web pages
            if (content.length > 5000) content = content.slice(0, 5000) + "\n...[Web Page Truncated]...";
            const entry = `\n>>> SOURCE: ${file.name} (Web)\n${content}\n`;
            if (currentChars + entry.length < MAX_CONTEXT_CHARS) {
@@ -127,16 +147,14 @@ async function readProjectFiles(projectFiles) {
         continue;
       }
 
-      // B. Skip Missing or Large Files
+      // 2. Skip Missing or Huge Files
       if (!fs.existsSync(file.path)) continue;
       const stats = await fs.promises.stat(file.path);
-      if (stats.size > 10 * 1024 * 1024) { // Skip > 10MB
-        continue; 
-      }
+      if (stats.size > 20 * 1024 * 1024) continue; // Skip >20MB
       
       let fileContent = "";
       
-      // C. PDF Parsing (CRITICAL)
+      // 3. PDF PARSING (Crucial)
       if (file.path.toLowerCase().endsWith('.pdf')) {
         try {
           const pdf = loadPdf();
@@ -148,15 +166,13 @@ async function readProjectFiles(projectFiles) {
           fileContent = "[ERROR: Could not parse PDF text.]";
         }
       } 
-      // D. Standard Text Files (Skip binaries)
+      // 4. TEXT FILES
       else if (!['png','jpg','jpeg','gif','exe','bin','zip','iso','dll','dmg'].includes(file.type.toLowerCase())) {
         fileContent = await fs.promises.readFile(file.path, 'utf-8');
-        // Simple binary check
-        if (fileContent.indexOf('\0') !== -1) fileContent = ""; 
+        if (fileContent.indexOf('\0') !== -1) fileContent = ""; // Binary check
       }
 
       if (fileContent) {
-        // Truncate individual files if too huge
         if (fileContent.length > 15000) {
           fileContent = fileContent.slice(0, 15000) + `\n... [File ${file.name} Truncated] ...`;
         }
@@ -173,7 +189,7 @@ async function readProjectFiles(projectFiles) {
   return context;
 }
 
-// Helper: Recursive Directory Scanner
+// --- 7. HELPER: RECURSIVE SCAN ---
 async function scanDirectory(dirPath, fileList = []) {
   try {
     const files = await fs.promises.readdir(dirPath, { withFileTypes: true });
@@ -193,30 +209,26 @@ async function scanDirectory(dirPath, fileList = []) {
   return fileList;
 }
 
-// Helper: Git Logic
+// --- 8. HELPER: GIT HANDLER ---
 const gitHandler = {
   async getStatus(rootPath) { try { if (!rootPath || !fs.existsSync(path.join(rootPath, '.git'))) return null; const git = loadGit()(rootPath); const status = await git.status(); return { current: status.current, modified: status.modified, staged: status.staged, clean: status.isClean() }; } catch (e) { return null; } },
   async getDiff(rootPath) { try { if (!rootPath) return ""; const git = loadGit()(rootPath); let diff = await git.diff(['--staged']); if (!diff) diff = await git.diff(); return diff; } catch (e) { return ""; } }
 };
 
-// --- 6. APP INITIALIZATION & HANDLERS ---
+// --- 9. APP READY ---
 app.whenReady().then(() => {
   createWindow();
-  if (createTray) tray = createTray(mainWindow); // Optional Tray
+  tray = createTray(mainWindow); 
   setupUpdater();
+  
   if (app.isPackaged) autoUpdater.checkForUpdatesAndNotify();
 
-  // ==========================================
-  // IPC HANDLERS (The API surface)
-  // ==========================================
-
-  // --- SYSTEM ---
-  ipcMain.handle('settings:load', async () => {
-    try { if (fs.existsSync(getSettingsPath())) return { ...DEFAULT_SETTINGS, ...JSON.parse(await fs.promises.readFile(getSettingsPath(), 'utf-8')) }; } catch (e) { } return DEFAULT_SETTINGS;
-  });
+  // --- HANDLERS: SYSTEM ---
+  ipcMain.handle('settings:load', async () => { try { if (fs.existsSync(getSettingsPath())) return { ...DEFAULT_SETTINGS, ...JSON.parse(await fs.promises.readFile(getSettingsPath(), 'utf-8')) }; } catch (e) { } return DEFAULT_SETTINGS; });
   ipcMain.handle('settings:save', async (e, settings) => { await fs.promises.writeFile(getSettingsPath(), JSON.stringify(settings, null, 2)); return true; });
+  ipcMain.handle('system:factory-reset', async () => { try { const del = async (d) => { if(fs.existsSync(d)){ for(const f of await fs.promises.readdir(d)){ const c=path.join(d,f); if((await fs.promises.lstat(c)).isDirectory()) await fs.promises.rm(c,{recursive:true}); else await fs.promises.unlink(c); } } }; await del(getSessionsPath()); await del(getProjectsPath()); await fs.promises.writeFile(getSettingsPath(), JSON.stringify(DEFAULT_SETTINGS)); return true; } catch(e){ return false; } });
   
-  // ZENITH: SAVE FILE (New Feature)
+  // --- HANDLER: ZENITH SAVE (Fixed) ---
   ipcMain.handle('system:save-file', async (e, { content, filename }) => {
     const { filePath } = await dialog.showSaveDialog(mainWindow, {
       defaultPath: filename || 'zenith-draft.md',
@@ -233,23 +245,86 @@ app.whenReady().then(() => {
     return false;
   });
 
-  // FACTORY RESET
-  ipcMain.handle('system:factory-reset', async () => { 
+  // --- HANDLERS: PROJECT ---
+  ipcMain.handle('project:list', async () => { const d = getProjectsPath(); const f = await fs.promises.readdir(d); const p = []; for (const x of f) { if(x.endsWith('.json')) p.push(JSON.parse(await fs.promises.readFile(path.join(d, x), 'utf-8'))); } return p; });
+  ipcMain.handle('project:create', async (e, { id, name }) => { const p = path.join(getProjectsPath(), `${id}.json`); const n = { id, name, files: [], systemPrompt: "", createdAt: new Date() }; await fs.promises.writeFile(p, JSON.stringify(n, null, 2)); return n; });
+  ipcMain.handle('project:delete', async (e, id) => { await fs.promises.unlink(path.join(getProjectsPath(), `${id}.json`)); return true; });
+  ipcMain.handle('project:update-settings', async (e, { id, systemPrompt }) => { const p = path.join(getProjectsPath(), `${id}.json`); if (fs.existsSync(p)) { const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); d.systemPrompt = systemPrompt; await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); return d; } return null; });
+  
+  ipcMain.handle('project:add-files', async (e, projectId) => { const r = await dialog.showOpenDialog(mainWindow, { properties: ['openFile', 'multiSelections'] }); if (!r.canceled) { const p = path.join(getProjectsPath(), `${projectId}.json`); const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); const n = r.filePaths.map(x => ({ path: x, name: path.basename(x), type: path.extname(x).substring(1) })); d.files.push(...n.filter(f => !d.files.some(ex => ex.path === f.path))); await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); return d.files; } return null; });
+  ipcMain.handle('project:add-folder', async (e, projectId) => { const r = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] }); if (!r.canceled && r.filePaths.length > 0) { const folderPath = r.filePaths[0]; const allFiles = await scanDirectory(folderPath); const p = path.join(getProjectsPath(), `${projectId}.json`); const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); const newFiles = allFiles.filter(f => !d.files.some(existing => existing.path === f.path)); d.files.push(...newFiles); d.rootPath = folderPath; await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); return d.files; } return null; });
+
+  // --- HANDLER: DEEP RESEARCH (Web Scraping) ---
+  ipcMain.handle('project:add-url', async (e, { projectId, url }) => { 
       try { 
-          const del = async (d) => { if(fs.existsSync(d)){ for(const f of await fs.promises.readdir(d)){ const c=path.join(d,f); if((await fs.promises.lstat(c)).isDirectory()) await fs.promises.rm(c,{recursive:true}); else await fs.promises.unlink(c); } } }; 
-          await del(getSessionsPath()); await del(getProjectsPath()); 
-          await fs.promises.writeFile(getSettingsPath(), JSON.stringify(DEFAULT_SETTINGS)); 
-          return true; 
-      } catch(e){ return false; } 
+          const cheerio = loadCheerio(); 
+          const response = await fetch(url); 
+          const html = await response.text(); 
+          const $ = cheerio.load(html); 
+          $('script, style, nav, footer, iframe').remove(); 
+          const content = $('body').text().replace(/\s\s+/g, ' ').trim(); 
+          const filename = `web-${Date.now()}.txt`; 
+          await fs.promises.writeFile(path.join(getCachePath(), filename), content, 'utf-8'); 
+          const p = path.join(getProjectsPath(), `${projectId}.json`); 
+          const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); 
+          d.files.push({ path: url, name: $('title').text() || url, type: 'url', cacheFile: filename }); 
+          await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); 
+          return d.files; 
+      } catch (e) { throw new Error("Scrape Failed"); } 
   });
 
-  // --- OLLAMA STREAMING (CHAT) ---
+  ipcMain.handle('agent:deep-research', async (e, { projectId, url }) => { 
+      try { 
+          const cheerio = loadCheerio(); 
+          const response = await fetch(url); 
+          const html = await response.text(); 
+          const $ = cheerio.load(html); 
+          $('script, style, nav, footer, iframe').remove(); 
+          const content = $('body').text().replace(/\s\s+/g, ' ').trim().slice(0, 15000); 
+          return content; 
+      } catch (e) { throw new Error("Research Failed"); } 
+  });
+
+  // --- HANDLER: SCAFFOLDING (Blueprints) ---
+  ipcMain.handle('project:scaffold', async (e, { projectId, structure }) => {
+    const p = path.join(getProjectsPath(), `${projectId}.json`);
+    if (!fs.existsSync(p)) throw new Error("Project not found");
+    const d = JSON.parse(await fs.promises.readFile(p, 'utf-8'));
+    if (!d.rootPath) throw new Error("NO_ROOT_PATH");
+    const root = d.rootPath;
+    const results = [];
+    for (const item of structure) {
+      try {
+        const fullPath = path.join(root, item.path);
+        if (!fullPath.startsWith(root)) continue;
+        if (item.type === 'folder') { await fs.promises.mkdir(fullPath, { recursive: true }); } 
+        else { await fs.promises.mkdir(path.dirname(fullPath), { recursive: true }); await fs.promises.writeFile(fullPath, item.content || '', 'utf-8'); }
+        results.push({ success: true, path: item.path });
+      } catch (err) { results.push({ success: false, path: item.path, error: err.message }); }
+    }
+    return results;
+  });
+
+  // --- HANDLERS: SESSION & CALENDAR ---
+  ipcMain.handle('session:save', async (e, { id, title, messages, date }) => { const p = path.join(getSessionsPath(), `${id}.json`); let t = title; if(fs.existsSync(p)){ const ex = JSON.parse(await fs.promises.readFile(p,'utf-8')); if(ex.title && ex.title!=="New Chat" && (!title||title==="New Chat")) t = ex.title; } await fs.promises.writeFile(p, JSON.stringify({ id, title:t||"New Chat", messages, date }, null, 2)); return true; });
+  ipcMain.handle('session:list', async () => { const d = getSessionsPath(); const f = await fs.promises.readdir(d); const s = []; for(const x of f){ if(x.endsWith('.json')){ try{ const j=JSON.parse(await fs.promises.readFile(path.join(d,x),'utf-8')); s.push({id:j.id, title:j.title, date:j.date}); }catch(e){} } } return s.sort((a,b)=>new Date(b.date)-new Date(a.date)); });
+  ipcMain.handle('session:load', async (e, id) => JSON.parse(await fs.promises.readFile(path.join(getSessionsPath(), `${id}.json`), 'utf-8')));
+  ipcMain.handle('session:delete', async (e, id) => { await fs.promises.unlink(path.join(getSessionsPath(), `${id}.json`)); return true; });
+  ipcMain.handle('session:rename', async (e, { id, title }) => { const p = path.join(getSessionsPath(), `${id}.json`); if(fs.existsSync(p)){ const c = JSON.parse(await fs.promises.readFile(p,'utf-8')); c.title = title; await fs.promises.writeFile(p, JSON.stringify(c,null,2)); return true; } return false; });
+  ipcMain.handle('calendar:load', async () => { try { if (fs.existsSync(getCalendarPath())) return JSON.parse(await fs.promises.readFile(getCalendarPath(), 'utf-8')); return []; } catch (e) { return []; } });
+  ipcMain.handle('calendar:save', async (e, events) => { try { await fs.promises.writeFile(getCalendarPath(), JSON.stringify(events, null, 2)); return true; } catch (e) { return false; } });
+
+  // --- HANDLERS: GRAPH & GIT ---
+  ipcMain.handle('project:generate-graph', async (e, projectId) => { const p = path.join(getProjectsPath(), `${projectId}.json`); if (!fs.existsSync(p)) return { nodes: [], links: [] }; const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); const nodes = []; d.files.forEach((file) => nodes.push({ id: file.name, group: file.type, path: file.path })); return { nodes, links: [] }; });
+  ipcMain.handle('git:status', async (e, projectId) => { const p = path.join(getProjectsPath(), `${projectId}.json`); if (!fs.existsSync(p)) return null; const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); return d.rootPath ? await gitHandler.getStatus(d.rootPath) : null; });
+  ipcMain.handle('git:diff', async (e, projectId) => { const p = path.join(getProjectsPath(), `${projectId}.json`); const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); return d.rootPath ? await gitHandler.getDiff(d.rootPath) : ""; });
+
+  // --- HANDLER: OLLAMA STREAMING ---
   ipcMain.on('ollama:stream-prompt', async (event, { prompt, model, contextFiles, systemPrompt, settings }) => {
     const config = settings || DEFAULT_SETTINGS;
     let baseUrl = (config.ollamaUrl || "http://127.0.0.1:11434").replace(/\/$/, '').replace('localhost', '127.0.0.1');
-    
-    // Auto-select model if none provided
     let selectedModel = model || config.defaultModel;
+
     if(!selectedModel) {
         try {
             const r = await fetch(`${baseUrl}/api/tags`);
@@ -258,25 +333,13 @@ app.whenReady().then(() => {
         } catch(e) { mainWindow.webContents.send('ollama:error', "No AI models found."); return; }
     }
 
-    // Build Context
     const contextStr = await readProjectFiles(contextFiles || []);
     const fullPrompt = contextStr ? `[CONTEXT START]\n${contextStr}\n[CONTEXT END]\n\nQUESTION: ${prompt}` : prompt;
-    
-    // Developer vs Student Persona
-    const baseSystem = config.developerMode 
-        ? "You are OmniLab Forge, an expert software engineer. Be concise, technical, and accurate. Use markdown for code." 
-        : "You are OmniLab Nexus, an academic research assistant. Be helpful, thorough, and cite sources from the context provided.";
-    const finalSystem = `${baseSystem}\n${systemPrompt || ""}`;
+    const finalSystem = `${config.developerMode ? "You are OmniLab Forge, an expert engineer." : "You are OmniLab Nexus, a research assistant."}\n${systemPrompt || ""}`;
 
-    // Request
     const req = net.request({ method: 'POST', url: `${baseUrl}/api/generate` });
     req.setHeader('Content-Type', 'application/json');
-    
     req.on('response', (res) => {
-        if(res.statusCode !== 200) {
-            mainWindow.webContents.send('ollama:error', `Ollama Error: ${res.statusCode}`);
-            return;
-        }
         res.on('data', (chunk) => {
             const lines = chunk.toString().split('\n');
             for(const line of lines) {
@@ -290,158 +353,44 @@ app.whenReady().then(() => {
         });
         res.on('error', (e) => mainWindow.webContents.send('ollama:error', e.message));
     });
-    
     req.on('error', (e) => mainWindow.webContents.send('ollama:error', "Connection Failed"));
-    
     req.write(JSON.stringify({ 
         model: selectedModel, 
         prompt: `[SYSTEM] ${finalSystem}\n\n[USER] ${fullPrompt}`, 
         stream: true,
-        options: { 
-            num_ctx: config.contextLength || 8192, 
-            temperature: contextStr ? 0.2 : 0.7 // Low temp for factual Q&A, higher for creative
-        }
+        options: { num_ctx: config.contextLength || 8192, temperature: 0.4 } 
     }));
     req.end();
   });
 
-  // --- OLLAMA JSON GENERATION (CRITICAL FOR FLASHCARDS) ---
-  // This handles the "Generate Flashcards" feature.
+  // --- HANDLER: OLLAMA JSON (Flashcard Fix) ---
   ipcMain.handle('ollama:generate-json', async (e, { prompt, model, settings }) => { 
     const config = settings || DEFAULT_SETTINGS; 
     let baseUrl = (config.ollamaUrl || "http://127.0.0.1:11434").replace(/\/$/, '').replace('localhost', '127.0.0.1');
     let selectedModel = model || config.defaultModel;
-    
-    // Fallback model selection
     if(!selectedModel) { try { const r = await fetch(`${baseUrl}/api/tags`); const d = await r.json(); if(d.models?.length) selectedModel = d.models[0].name; } catch(e){} }
     
     try {
         const r = await fetch(`${baseUrl}/api/generate`, { 
             method:'POST', 
-            body:JSON.stringify({ 
-                model:selectedModel, 
-                prompt: prompt + "\n\nIMPORTANT: Return ONLY valid raw JSON. Do not use Markdown code blocks.", 
-                format:'json', // Force JSON mode if model supports it
-                stream:false 
-            }) 
+            body:JSON.stringify({ model:selectedModel, prompt, format:'json', stream:false }) 
         });
         const j = await r.json();
-        let raw = j.response.trim();
         
-        // CLEANUP: Remove Markdown code blocks if the AI added them (Common Issue)
+        // CRITICAL FIX: Strip markdown before parsing
+        let raw = j.response.trim();
         if (raw.startsWith('```json')) raw = raw.replace(/^```json\s*/, '').replace(/\s*```$/, '');
         else if (raw.startsWith('```')) raw = raw.replace(/^```\s*/, '').replace(/\s*```$/, '');
         
         return JSON.parse(raw);
     } catch(err) {
-        console.error("JSON Generation Failed:", err);
-        throw new Error("Failed to generate valid JSON");
+        return { error: "Failed to parse JSON" };
     }
   });
 
-  // --- UTILS ---
+  // Utils
   ipcMain.handle('ollama:status', async (e, url) => { try { const r = await fetch(`${url}/api/tags`); return r.status === 200; } catch(e){ return false; } });
   ipcMain.handle('ollama:models', async (e, url) => { try { const r = await fetch(`${url}/api/tags`); const d = await r.json(); return d.models.map(m=>m.name); } catch(e){ return []; } });
-
-  // --- PROJECT MANAGEMENT ---
-  ipcMain.handle('project:list', async () => { const d = getProjectsPath(); const f = await fs.promises.readdir(d); const p = []; for (const x of f) { if(x.endsWith('.json')) p.push(JSON.parse(await fs.promises.readFile(path.join(d, x), 'utf-8'))); } return p; });
-  ipcMain.handle('project:create', async (e, { id, name }) => { const p = path.join(getProjectsPath(), `${id}.json`); const n = { id, name, files: [], systemPrompt: "", createdAt: new Date() }; await fs.promises.writeFile(p, JSON.stringify(n, null, 2)); return n; });
-  ipcMain.handle('project:delete', async (e, id) => { await fs.promises.unlink(path.join(getProjectsPath(), `${id}.json`)); return true; });
-  ipcMain.handle('project:update-settings', async (e, { id, systemPrompt }) => { const p = path.join(getProjectsPath(), `${id}.json`); if (fs.existsSync(p)) { const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); d.systemPrompt = systemPrompt; await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); return d; } return null; });
-
-  // FILE IMPORTING
-  ipcMain.handle('project:add-files', async (e, projectId) => { 
-      const r = await dialog.showOpenDialog(mainWindow, { properties: ['openFile', 'multiSelections'] }); 
-      if (!r.canceled) { 
-          const p = path.join(getProjectsPath(), `${projectId}.json`); 
-          const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); 
-          const n = r.filePaths.map(x => ({ path: x, name: path.basename(x), type: path.extname(x).substring(1) })); 
-          d.files.push(...n.filter(f => !d.files.some(ex => ex.path === f.path))); 
-          await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); 
-          return d.files; 
-      } return null; 
-  });
-  
-  ipcMain.handle('project:add-folder', async (e, projectId) => { 
-      const r = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] }); 
-      if (!r.canceled && r.filePaths.length > 0) { 
-          const folderPath = r.filePaths[0]; 
-          const allFiles = await scanDirectory(folderPath); 
-          const p = path.join(getProjectsPath(), `${projectId}.json`); 
-          const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); 
-          const newFiles = allFiles.filter(f => !d.files.some(existing => existing.path === f.path));
-          d.files.push(...newFiles);
-          d.rootPath = folderPath; 
-          await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); 
-          return d.files; 
-      } return null; 
-  });
-
-  // WEB SCRAPING (Deep Research)
-  ipcMain.handle('project:add-url', async (e, { projectId, url }) => { 
-      try { 
-          const cheerio = loadCheerio(); 
-          const response = await fetch(url); 
-          const html = await response.text(); 
-          const $ = cheerio.load(html); 
-          $('script, style, nav, footer, iframe').remove(); 
-          const content = $('body').text().replace(/\s\s+/g, ' ').trim(); 
-          const filename = `web-${Date.now()}.txt`; 
-          await fs.promises.writeFile(path.join(getCachePath(), filename), content, 'utf-8'); 
-          const projectPath = path.join(getProjectsPath(), `${projectId}.json`); 
-          const projectData = JSON.parse(await fs.promises.readFile(projectPath, 'utf-8')); 
-          projectData.files.push({ path: url, name: $('title').text() || url, type: 'url', cacheFile: filename }); 
-          await fs.promises.writeFile(projectPath, JSON.stringify(projectData, null, 2)); 
-          return projectData.files; 
-      } catch (e) { throw new Error("Scrape Failed"); } 
-  });
-
-  // --- SESSION & CALENDAR ---
-  ipcMain.handle('session:save', async (e, { id, title, messages, date }) => { const p = path.join(getSessionsPath(), `${id}.json`); let t = title; if(fs.existsSync(p)){ const ex = JSON.parse(await fs.promises.readFile(p,'utf-8')); if(ex.title && ex.title!=="New Chat" && (!title||title==="New Chat")) t = ex.title; } await fs.promises.writeFile(p, JSON.stringify({ id, title:t||"New Chat", messages, date }, null, 2)); return true; });
-  ipcMain.handle('session:list', async () => { const d = getSessionsPath(); const f = await fs.promises.readdir(d); const s = []; for(const x of f){ if(x.endsWith('.json')){ try{ const j=JSON.parse(await fs.promises.readFile(path.join(d,x),'utf-8')); s.push({id:j.id, title:j.title, date:j.date}); }catch(e){} } } return s.sort((a,b)=>new Date(b.date)-new Date(a.date)); });
-  ipcMain.handle('session:load', async (e, id) => JSON.parse(await fs.promises.readFile(path.join(getSessionsPath(), `${id}.json`), 'utf-8')));
-  ipcMain.handle('session:delete', async (e, id) => { await fs.promises.unlink(path.join(getSessionsPath(), `${id}.json`)); return true; });
-  ipcMain.handle('session:rename', async (e, { id, title }) => { const p = path.join(getSessionsPath(), `${id}.json`); if(fs.existsSync(p)){ const c = JSON.parse(await fs.promises.readFile(p,'utf-8')); c.title = title; await fs.promises.writeFile(p, JSON.stringify(c,null,2)); return true; } return false; });
-  ipcMain.handle('calendar:load', async () => { try { if (fs.existsSync(getCalendarPath())) return JSON.parse(await fs.promises.readFile(getCalendarPath(), 'utf-8')); return []; } catch (e) { return []; } });
-  ipcMain.handle('calendar:save', async (e, events) => { try { await fs.promises.writeFile(getCalendarPath(), JSON.stringify(events, null, 2)); return true; } catch (e) { return false; } });
-
-  // --- ADVANCED AGENTS ---
-  ipcMain.handle('agent:deep-research', async (e, { projectId, url }) => { try { const cheerio = loadCheerio(); const response = await fetch(url); const html = await response.text(); const $ = cheerio.load(html); $('script, style, nav, footer, iframe').remove(); const content = $('body').text().replace(/\s\s+/g, ' ').trim().slice(0, 15000); const filename = `research-${Date.now()}.txt`; await fs.promises.writeFile(path.join(getCachePath(), filename), content, 'utf-8'); const projectPath = path.join(getProjectsPath(), `${projectId}.json`); const projectData = JSON.parse(await fs.promises.readFile(projectPath, 'utf-8')); projectData.files.push({ path: url, name: `[Research] ${$('title').text()}`, type: 'url', cacheFile: filename }); await fs.promises.writeFile(projectPath, JSON.stringify(projectData, null, 2)); return content; } catch (e) { throw new Error("Research Failed"); } });
-  
-  // GRAPH VISUALIZATION
-  ipcMain.handle('project:generate-graph', async (e, projectId) => { 
-      const p = path.join(getProjectsPath(), `${projectId}.json`); 
-      if (!fs.existsSync(p)) return { nodes: [], links: [] }; 
-      const projectData = JSON.parse(await fs.promises.readFile(p, 'utf-8')); 
-      const nodes = []; const links = []; 
-      projectData.files.forEach((file) => nodes.push({ id: file.name, group: file.type, path: file.path })); 
-      // Basic linking logic could go here
-      return { nodes, links }; 
-  });
-
-  // GIT STATUS
-  ipcMain.handle('git:status', async (e, projectId) => { const p = path.join(getProjectsPath(), `${projectId}.json`); if (!fs.existsSync(p)) return null; const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); return d.rootPath ? await gitHandler.getStatus(d.rootPath) : null; });
-  ipcMain.handle('git:diff', async (e, projectId) => { const p = path.join(getProjectsPath(), `${projectId}.json`); const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); return d.rootPath ? await gitHandler.getDiff(d.rootPath) : ""; });
-
-  // SCAFFOLDING (Blueprint)
-  ipcMain.handle('project:scaffold', async (e, { projectId, structure }) => {
-    const p = path.join(getProjectsPath(), `${projectId}.json`);
-    if (!fs.existsSync(p)) throw new Error("Project not found");
-    const projectData = JSON.parse(await fs.promises.readFile(p, 'utf-8'));
-    if (!projectData.rootPath) throw new Error("NO_ROOT_PATH");
-    const root = projectData.rootPath;
-    const results = [];
-    for (const item of structure) {
-      try {
-        const fullPath = path.join(root, item.path);
-        if (!fullPath.startsWith(root)) continue;
-        if (item.type === 'folder') { await fs.promises.mkdir(fullPath, { recursive: true }); } 
-        else { await fs.promises.mkdir(path.dirname(fullPath), { recursive: true }); await fs.promises.writeFile(fullPath, item.content || '', 'utf-8'); }
-        results.push({ success: true, path: item.path });
-      } catch (err) { results.push({ success: false, path: item.path, error: err.message }); }
-    }
-    return results;
-  });
 
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
