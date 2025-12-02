@@ -18,11 +18,132 @@ import {
   Edit3,
   X,
   AlignLeft,
-  ArrowLeft
+  ArrowLeft,
+  GripHorizontal,
+  BellRing
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// --- Utility Functions ---
+// --- ROBUST NATURAL LANGUAGE PARSER ---
+const parseNaturalLanguage = (input) => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0); // Start at midnight today
+    
+    let targetDate = new Date(now);
+    let title = input;
+    let time = "";
+    
+    const lower = input.toLowerCase();
+
+    // --- 1. TIME EXTRACTION (e.g. 2pm, 2:30pm, 14:00) ---
+    const timeRegex = /(\d{1,2})(:(\d{2}))?\s*(am|pm)|(\d{1,2}):(\d{2})/i;
+    const timeMatch = input.match(timeRegex);
+
+    if (timeMatch) {
+        let [fullMatch, h1, _, m1, amp, h2, m2] = timeMatch;
+        let hours = parseInt(h1 || h2);
+        let minutes = parseInt(m1 || m2 || 0);
+        
+        if (amp) {
+            const isPM = amp.toLowerCase() === 'pm';
+            if (isPM && hours < 12) hours += 12;
+            if (!isPM && hours === 12) hours = 0;
+        }
+        
+        time = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+        title = title.replace(fullMatch, ''); // Remove time from title
+    }
+
+    // --- 2. RELATIVE DATES (tomorrow, today, in X days) ---
+    if (lower.includes('tomorrow')) {
+        targetDate.setDate(now.getDate() + 1);
+        title = title.replace(/tomorrow/gi, '');
+    } else if (lower.includes('today')) {
+        title = title.replace(/today/gi, '');
+    } else if (lower.match(/in \d+ days/)) {
+        const days = parseInt(lower.match(/in (\d+) days/)[1]);
+        targetDate.setDate(now.getDate() + days);
+        title = title.replace(/in \d+ days/gi, '');
+    }
+
+    // --- 3. SPECIFIC WEEKDAYS (e.g. "on Friday", "next Monday") ---
+    const daysMap = {
+        sunday: 0, sun: 0,
+        monday: 1, mon: 1,
+        tuesday: 2, tue: 2,
+        wednesday: 3, wed: 3,
+        thursday: 4, thu: 4,
+        friday: 5, fri: 5,
+        saturday: 6, sat: 6
+    };
+    
+    // Find words like "Friday", "Mon", etc.
+    const dayRegex = new RegExp(`\\b(${Object.keys(daysMap).join('|')})\\b`, 'i');
+    const dayMatch = lower.match(dayRegex);
+
+    if (dayMatch) {
+        const targetDay = daysMap[dayMatch[1]];
+        const currentDay = now.getDay();
+        let daysToAdd = targetDay - currentDay;
+        
+        // If target is today or past, assume next week (unless explicitly "this")
+        if (daysToAdd <= 0) daysToAdd += 7;
+        
+        // Handle "Next Friday" vs just "Friday" (logic: usually same, but could add 7 more if needed)
+        // For simplicity, we just go to the *upcoming* occurrence.
+        
+        targetDate.setDate(now.getDate() + daysToAdd);
+        title = title.replace(new RegExp(`\\b(on |next |this )?${dayMatch[1]}\\b`, 'gi'), '');
+    }
+
+    // --- 4. EXPLICIT DATES (e.g. 12/25, Jan 15) ---
+    // Simple slash format: 10/25
+    const slashDateMatch = lower.match(/\b(\d{1,2})\/(\d{1,2})\b/);
+    if (slashDateMatch) {
+        const month = parseInt(slashDateMatch[1]) - 1; // JS months 0-11
+        const day = parseInt(slashDateMatch[2]);
+        targetDate.setMonth(month);
+        targetDate.setDate(day);
+        
+        // If date passed, assume next year
+        if (targetDate < now) targetDate.setFullYear(now.getFullYear() + 1);
+        
+        title = title.replace(slashDateMatch[0], '');
+    }
+
+    // --- 5. CLEANUP ---
+    title = title
+        .replace(/\b(at|on|due|by)\b/gi, '') // Remove prepositions
+        .replace(/\s+/g, ' ')                // Collapse spaces
+        .trim();
+
+    return { 
+        title: title || "New Event", 
+        date: formatDate(targetDate), // Uses local-safe formatter
+        time: time 
+    };
+};
+
+// --- HELPERS ---
+const createLocalDate = (dateStr) => {
+    if (!dateStr) return new Date();
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(y, m - 1, d);
+};
+
+const formatFriendlyDate = (dateStr) => {
+  if (!dateStr) return '';
+  const date = createLocalDate(dateStr);
+  return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+};
+
+const formatDate = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const getEventColor = (type, isDev) => {
   if (isDev) {
     if (type === 'release') return 'bg-rose-500/20 text-rose-200 border-rose-500/30 border-l-2 border-l-rose-500';
@@ -34,19 +155,6 @@ const getEventColor = (type, isDev) => {
   if (type === 'study') return 'bg-indigo-500/20 text-indigo-200 border-indigo-500/30 border-l-2 border-l-indigo-500';
   if (type === 'assignment') return 'bg-blue-500/20 text-blue-200 border-blue-500/30 border-l-2 border-l-blue-500';
   return 'bg-emerald-500/20 text-emerald-200 border-emerald-500/30 border-l-2 border-l-emerald-500';
-};
-
-const formatDate = (date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-const formatFriendlyDate = (dateStr) => {
-  if (!dateStr) return '';
-  const date = new Date(dateStr);
-  return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 };
 
 const generateICS = (events) => {
@@ -65,9 +173,31 @@ const generateICS = (events) => {
   window.URL.revokeObjectURL(url);
 };
 
-// --- Components ---
+// --- DRAGGABLE EVENT ---
+const DraggableEvent = ({ event, onClick, theme }) => {
+    return (
+        <div
+            draggable
+            onDragStart={(e) => {
+                e.dataTransfer.setData("eventId", event.id);
+                e.dataTransfer.effectAllowed = "move";
+            }}
+            onClick={(e) => { e.stopPropagation(); onClick(event); }}
+            className={`text-[9px] px-2 py-1 rounded truncate font-medium cursor-grab active:cursor-grabbing hover:brightness-110 active:scale-95 transition-transform flex items-center gap-1 group ${getEventColor(event.type, theme.isDev)}`}
+            title={`${event.title}${event.time ? ` at ${event.time}` : ''}`}
+        >
+            <GripHorizontal size={8} className="opacity-0 group-hover:opacity-50" />
+            {event.time && <span className="opacity-70 font-mono">{event.time}</span>}
+            <span className="truncate">{event.title}</span>
+        </div>
+    );
+};
 
-const CalendarDay = React.memo(({ day, dateStr, dayEvents, isToday, theme, onDayClick, onEventClick }) => {
+// --- SUB-COMPONENTS ---
+
+const CalendarDay = React.memo(({ day, dateStr, dayEvents, isToday, theme, onDayClick, onEventClick, onDropEvent }) => {
+  const [isDragOver, setIsDragOver] = useState(false);
+
   if (!day) return <div className="bg-[#050505]/50 border border-white/[0.02]" />;
 
   return (
@@ -75,9 +205,17 @@ const CalendarDay = React.memo(({ day, dateStr, dayEvents, isToday, theme, onDay
       onClick={onDayClick}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className={`relative border border-white/5 p-2 flex flex-col transition-colors group hover:bg-white/[0.02] cursor-pointer ${
-        isToday ? `bg-white/[0.03] ${theme.primaryBorder}` : 'bg-[#0A0A0A]'
-      }`}
+      onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+      onDragLeave={() => setIsDragOver(false)}
+      onDrop={(e) => {
+          e.preventDefault();
+          setIsDragOver(false);
+          const eventId = e.dataTransfer.getData("eventId");
+          if (eventId) onDropEvent(eventId, dateStr);
+      }}
+      className={`relative border p-2 flex flex-col transition-all group hover:bg-white/[0.02] cursor-pointer min-h-[100px] ${
+        isDragOver ? 'border-blue-500/50 bg-blue-500/10' : 'border-white/5'
+      } ${isToday ? `bg-white/[0.03] ${theme.primaryBorder}` : 'bg-[#0A0A0A]'}`}
     >
       <div className="flex justify-between items-start mb-2">
         <span className={`text-sm font-bold w-7 h-7 flex items-center justify-center rounded-full ${isToday ? `${theme.primaryBg} text-white` : 'text-gray-400'}`}>
@@ -92,15 +230,12 @@ const CalendarDay = React.memo(({ day, dateStr, dayEvents, isToday, theme, onDay
       
       <div className="flex-1 overflow-y-auto custom-scrollbar space-y-1">
         {dayEvents.map((event, idx) => (
-          <div
-            key={event.id || idx}
-            onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
-            className={`text-[9px] px-2 py-1 rounded truncate font-medium cursor-pointer hover:brightness-110 active:scale-95 transition-transform ${getEventColor(event.type, theme.isDev)}`}
-            title={`${event.title}${event.time ? ` at ${event.time}` : ''}`}
-          >
-            {event.time && <span className="opacity-70 mr-1 font-mono">{event.time}</span>}
-            {event.title}
-          </div>
+            <DraggableEvent 
+                key={event.id || idx} 
+                event={event} 
+                onClick={onEventClick} 
+                theme={theme}
+            />
         ))}
       </div>
     </motion.div>
@@ -119,7 +254,7 @@ const WeekView = React.memo(({ currentDate, eventsByDate, theme, onEventClick })
     return days;
   }, [currentDate]);
 
-  const hours = Array.from({ length: 15 }, (_, i) => i + 7); // 7 AM to 10 PM
+  const hours = Array.from({ length: 15 }, (_, i) => i + 7);
 
   return (
     <div className="flex flex-col h-full bg-[#0A0A0A] border border-white/5 rounded-2xl overflow-hidden">
@@ -187,19 +322,12 @@ const WeekView = React.memo(({ currentDate, eventsByDate, theme, onEventClick })
 });
 
 const EventModal = React.memo(({ isOpen, isPlanning, isEditing, onClose, onAdd, onUpdate, onDelete, onGenerate, settings, theme, isLoading, ...props }) => {
-    // Local state to toggle between View Mode and Edit Mode
     const [isEditingState, setIsEditingState] = useState(false);
 
-    // Reset state when modal opens
     useEffect(() => {
         if (isOpen) {
-            // If it's a new event or planning, default to editing/form mode.
-            // If it's an existing event (isEditing prop), default to View mode.
-            if (isPlanning || !isEditing) {
-                setIsEditingState(true);
-            } else {
-                setIsEditingState(false);
-            }
+            if (isPlanning || !isEditing) setIsEditingState(true);
+            else setIsEditingState(false);
         }
     }, [isOpen, isPlanning, isEditing]);
 
@@ -220,81 +348,46 @@ const EventModal = React.memo(({ isOpen, isPlanning, isEditing, onClose, onAdd, 
             className="bg-[#0F0F0F] border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh] overflow-hidden"
           >
             
-            {/* --- VIEW MODE (The "Event Page") --- */}
             {!isEditingState && !isPlanning ? (
                 <>
-                    {/* Hero Header */}
                     <div className={`p-8 relative overflow-hidden ${theme.softBg} border-b ${theme.primaryBorder}`}>
                         <div className="absolute top-4 right-4 flex gap-2">
-                             <button onClick={() => setIsEditingState(true)} className="p-2 bg-black/20 hover:bg-black/40 text-white rounded-lg backdrop-blur-sm transition-colors" title="Edit">
-                                <Edit3 size={16} />
-                             </button>
-                             <button onClick={onClose} className="p-2 bg-black/20 hover:bg-black/40 text-white rounded-lg backdrop-blur-sm transition-colors" title="Close">
-                                <X size={16} />
-                             </button>
+                             <button onClick={() => setIsEditingState(true)} className="p-2 bg-black/20 hover:bg-black/40 text-white rounded-lg backdrop-blur-sm transition-colors" title="Edit"><Edit3 size={16} /></button>
+                             <button onClick={onClose} className="p-2 bg-black/20 hover:bg-black/40 text-white rounded-lg backdrop-blur-sm transition-colors" title="Close"><X size={16} /></button>
                         </div>
 
                         <div className="flex gap-2 mb-4">
-                            <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border ${theme.primaryBorder} ${theme.primaryText}`}>
-                                {props.newEventType}
-                            </span>
-                            {props.newEventPriority === 'high' && (
-                                <span className="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border border-red-500/30 text-red-400 bg-red-500/10 flex items-center gap-1">
-                                    <AlertCircle size={10} /> High Priority
-                                </span>
-                            )}
+                            <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border ${theme.primaryBorder} ${theme.primaryText}`}>{props.newEventType}</span>
+                            {props.newEventPriority === 'high' && <span className="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border border-red-500/30 text-red-400 bg-red-500/10 flex items-center gap-1"><AlertCircle size={10} /> High Priority</span>}
                         </div>
                         
                         <h2 className="text-3xl font-bold text-white leading-tight mb-2">{props.newEventTitle}</h2>
                         
                         <div className="flex items-center gap-4 text-sm text-gray-300 font-medium">
-                            <div className="flex items-center gap-1.5">
-                                <CalendarIcon size={14} className={theme.primaryText} />
-                                {formatFriendlyDate(props.newEventDate)}
-                            </div>
-                            {props.newEventTime && (
-                                <div className="flex items-center gap-1.5">
-                                    <Clock size={14} className={theme.primaryText} />
-                                    {props.newEventTime}
-                                </div>
-                            )}
+                            <div className="flex items-center gap-1.5"><CalendarIcon size={14} className={theme.primaryText} />{formatFriendlyDate(props.newEventDate)}</div>
+                            {props.newEventTime && <div className="flex items-center gap-1.5"><Clock size={14} className={theme.primaryText} />{props.newEventTime}</div>}
                         </div>
                     </div>
 
-                    {/* Content Body */}
                     <div className="p-6 bg-[#0F0F0F] flex-1 overflow-y-auto">
-                        {/* Notes Section */}
                         <div className="mb-8">
-                            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                <AlignLeft size={12} /> Notes & Details
-                            </h4>
+                            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 flex items-center gap-2"><AlignLeft size={12} /> Notes & Details</h4>
                             <div className="p-4 rounded-xl bg-[#151515] border border-white/5 text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
                                 {props.newEventNotes || "No additional notes provided for this event."}
                             </div>
                         </div>
 
-                        {/* Actions Footer */}
                         <div className="flex justify-between items-center pt-6 border-t border-white/5">
-                             <button onClick={onDelete} className="text-red-400 hover:text-red-300 text-sm font-medium flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-red-500/10 transition-colors">
-                                <Trash2 size={16} /> Delete Event
-                             </button>
-                             <button onClick={onClose} className="text-gray-400 hover:text-white text-sm font-medium">
-                                Close
-                             </button>
+                             <button onClick={onDelete} className="text-red-400 hover:text-red-300 text-sm font-medium flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-red-500/10 transition-colors"><Trash2 size={16} /> Delete Event</button>
+                             <button onClick={onClose} className="text-gray-400 hover:text-white text-sm font-medium">Close</button>
                         </div>
                     </div>
                 </>
             ) : (
-                /* --- EDIT/ADD FORM MODE --- */
                 <>
-                    {/* Header */}
                     <div className="flex items-center justify-between p-5 border-b border-white/10 bg-[#151515]">
                         <div className="flex items-center gap-3">
-                            {isEditing && !isPlanning && (
-                                <button onClick={() => setIsEditingState(false)} className="text-gray-500 hover:text-white transition-colors">
-                                    <ArrowLeft size={18} />
-                                </button>
-                            )}
+                            {isEditing && !isPlanning && <button onClick={() => setIsEditingState(false)} className="text-gray-500 hover:text-white transition-colors"><ArrowLeft size={18} /></button>}
                             <h3 className="text-base font-bold text-white flex items-center gap-2">
                                 {isPlanning ? (
                                     <><div className={`p-1.5 rounded-lg ${theme.softBg} ${theme.accentText}`}><Sparkles size={16} /></div> {settings.developerMode ? "Sprint Planner" : "Study Plan"}</>
@@ -306,14 +399,12 @@ const EventModal = React.memo(({ isOpen, isPlanning, isEditing, onClose, onAdd, 
                         <button onClick={onClose} className="text-gray-500 hover:text-white"><X size={18} /></button>
                     </div>
                     
-                    {/* Form Inputs */}
                     <div className="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-5">
                     {isPlanning ? (
-                        /* Planning Inputs */
                         <>
                         <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-xs text-blue-200">
-                            <strong className="block mb-1 flex items-center gap-1"><Sparkles size={10}/> Manual Generator</strong>
-                            Auto-generates a schedule based on your timeline.
+                            <strong className="block mb-1 flex items-center gap-1"><Sparkles size={10}/> AI Generator</strong>
+                            Tell Chronos what to plan, and it will build a schedule for you.
                         </div>
                         <div>
                             <label className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2"><Tag size={12}/> Topic</label>
@@ -335,7 +426,6 @@ const EventModal = React.memo(({ isOpen, isPlanning, isEditing, onClose, onAdd, 
                         </div>
                         </>
                     ) : (
-                        /* Standard Event Inputs */
                         <>
                         <div className="grid grid-cols-2 gap-4">
                             <div>
@@ -375,7 +465,6 @@ const EventModal = React.memo(({ isOpen, isPlanning, isEditing, onClose, onAdd, 
                     )}
                     </div>
 
-                    {/* Footer */}
                     <div className="p-5 border-t border-white/10 bg-[#151515] rounded-b-2xl flex justify-end gap-3">
                     <button onClick={() => isEditing && !isPlanning ? setIsEditingState(false) : onClose()} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors" disabled={isLoading}>Cancel</button>
                     <button 
@@ -399,7 +488,7 @@ const EventModal = React.memo(({ isOpen, isPlanning, isEditing, onClose, onAdd, 
     );
 });
 
-// --- Main Page ---
+// --- MAIN PAGE ---
 
 export const Chronos = React.memo(() => {
   const { calendarEvents, addEvent, updateEvent, deleteEvent, generateSchedule, theme, settings, isLoading } = useLumina();
@@ -409,6 +498,8 @@ export const Chronos = React.memo(() => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPlanning, setIsPlanning] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
+  const [naturalInput, setNaturalInput] = useState("");
+  const [notification, setNotification] = useState(null); 
   
   // Form State
   const [newEventTitle, setNewEventTitle] = useState("");
@@ -435,7 +526,55 @@ export const Chronos = React.memo(() => {
     });
   }, [viewMode]);
 
-  // --- Handlers ---
+  // --- HANDLERS ---
+
+  const showNotification = (message) => {
+      setNotification(message);
+      setTimeout(() => setNotification(null), 3000);
+  };
+
+  const handleNaturalSubmit = (e) => {
+      if (e.key === 'Enter' && naturalInput) {
+          const lower = naturalInput.toLowerCase();
+          
+          if (lower.includes('plan') || lower.includes('schedule') || lower.includes('generate')) {
+             const topic = naturalInput.replace(/plan|schedule|generate|sprint|for/gi, '').trim();
+             if (topic) {
+                 const deadline = new Date();
+                 deadline.setDate(deadline.getDate() + 7);
+                 const deadlineStr = formatDate(deadline);
+                 
+                 generateSchedule(topic, deadlineStr, 10, "Generated via Chronos Command Bar", "");
+                 showNotification(`Generating plan for "${topic}"...`);
+                 setNaturalInput("");
+                 return;
+             }
+          }
+
+          const parsed = parseNaturalLanguage(naturalInput);
+          if (parsed.title) {
+            addEvent(
+                parsed.title, 
+                parsed.date, 
+                'task', 
+                'medium', 
+                `Created via command: "${naturalInput}"`, 
+                parsed.time
+            );
+            showNotification(`Scheduled "${parsed.title}" for ${formatFriendlyDate(parsed.date)}`);
+            setNaturalInput("");
+          }
+      }
+  };
+
+  const handleDropEvent = (eventId, targetDate) => {
+      const event = calendarEvents.find(e => e.id === eventId);
+      if (event && updateEvent) {
+          if (window.confirm(`Reschedule "${event.title}" to ${targetDate}?`)) {
+              updateEvent(eventId, { ...event, date: targetDate });
+          }
+      }
+  };
 
   const openNewEvent = (dateStr) => {
       setEditingEvent(null);
@@ -523,10 +662,41 @@ export const Chronos = React.memo(() => {
   }, [daysInMonth, firstDayOfMonth]);
 
   return (
-    <div className="flex-1 h-full flex flex-col p-6 bg-[#030304] overflow-hidden">
+    <div className="flex-1 h-full flex flex-col p-6 bg-[#030304] overflow-hidden relative">
       <div className="max-w-[1600px] w-full mx-auto h-full flex flex-col">
+        
+        {/* --- TOAST NOTIFICATION --- */}
+        <AnimatePresence>
+            {notification && (
+                <motion.div 
+                    initial={{ y: 50, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    exit={{ y: 50, opacity: 0 }}
+                    className="absolute bottom-10 left-1/2 -translate-x-1/2 z-50 bg-[#151515] border border-green-500/30 text-green-400 px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 text-sm font-bold"
+                >
+                    <CheckCircle2 size={16} /> {notification}
+                </motion.div>
+            )}
+        </AnimatePresence>
+
+        {/* --- NATURAL LANGUAGE INPUT --- */}
+        <div className="mb-6 relative group z-20">
+            <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-gray-500 group-focus-within:text-blue-400 transition-colors">
+                <Sparkles size={16} className={naturalInput ? "animate-pulse text-blue-400" : ""} />
+            </div>
+            <input 
+                type="text" 
+                value={naturalInput}
+                onChange={(e) => setNaturalInput(e.target.value)}
+                onKeyDown={handleNaturalSubmit}
+                placeholder="Ask Chronos: 'Plan sprint for Physics', 'Meeting on Friday', or 'Call Mom at 5pm'..."
+                className="w-full bg-[#0A0A0A] border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-all shadow-inner placeholder-gray-600"
+            />
+            <div className="absolute right-3 top-3 text-[10px] text-gray-600 border border-white/5 px-1.5 rounded opacity-50 group-focus-within:opacity-100 transition-opacity">ENTER</div>
+        </div>
+
         {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-white/5 flex-shrink-0 mb-4">
+        <div className="flex items-center justify-between pb-4 border-b border-white/5 flex-shrink-0 mb-4 z-10">
           <div className="flex items-center gap-4">
             <h1 className="text-2xl font-bold text-white tracking-tight">
               {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
@@ -543,10 +713,8 @@ export const Chronos = React.memo(() => {
                 <button onClick={() => setViewMode('month')} className={`px-3 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-2 ${viewMode === 'month' ? 'bg-white/10 text-white' : 'text-gray-500'}`}><Grid size={12}/> Month</button>
                 <button onClick={() => setViewMode('week')} className={`px-3 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-2 ${viewMode === 'week' ? 'bg-white/10 text-white' : 'text-gray-500'}`}><Layout size={12}/> Week</button>
             </div>
-            <button onClick={() => generateICS(calendarEvents)} className="p-2 bg-[#111] border border-white/10 rounded-lg text-gray-400 hover:text-white"><Download size={14}/></button>
-            <button onClick={() => { setIsPlanning(true); setIsModalOpen(true); }} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold text-white ${theme.primaryBg} hover:opacity-90 shadow-lg`} disabled={isLoading}>
-                <Sparkles size={12}/> {settings.developerMode ? "Sprint Plan" : "Study Plan"}
-            </button>
+            <button onClick={() => generateICS(calendarEvents)} className="p-2 bg-[#111] border border-white/10 rounded-lg text-gray-400 hover:text-white" title="Export ICS"><Download size={14}/></button>
+            
             <button onClick={() => openNewEvent(formatDate(new Date()))} className="flex items-center gap-2 px-3 py-1.5 bg-white text-black hover:bg-gray-200 rounded-lg text-xs font-bold">
                 <Plus size={12}/> Add
             </button>
@@ -554,7 +722,7 @@ export const Chronos = React.memo(() => {
         </div>
 
         {/* Content */}
-        <div className="flex-1 min-h-0 relative">
+        <div className="flex-1 min-h-0 relative z-0">
           {viewMode === 'month' ? (
             <div className="h-full flex flex-col">
                 <div className="grid grid-cols-7 gap-px mb-2">
@@ -577,6 +745,7 @@ export const Chronos = React.memo(() => {
                             theme={{...theme, isDev: settings.developerMode}} 
                             onDayClick={() => { if(day) openNewEvent(dateStr); }}
                             onEventClick={openEditEvent}
+                            onDropEvent={handleDropEvent}
                         />
                     );
                   })}

@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useLumina } from '../context/LuminaContext';
 import { 
   FileCode, StickyNote, Database, Zap, Trash2, Search,
-  Maximize, Minimize, Grid, Cpu
+  Maximize, Minimize, Grid, Cpu, Sparkles, Loader2, MoreHorizontal
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -16,6 +16,15 @@ const getBezierPath = (x1, y1, x2, y2) => {
   return `M ${x1} ${y1} C ${cp1X} ${y1}, ${cp2X} ${y2}, ${x2} ${y2}`;
 };
 
+// Calculates coordinates for AI generated nodes to orbit the parent
+const getRadialPosition = (centerX, centerY, index, total, radius = 400) => {
+  const angle = (index / total) * 2 * Math.PI; // Distribute evenly in a circle
+  return {
+    x: centerX + radius * Math.cos(angle),
+    y: centerY + radius * Math.sin(angle)
+  };
+};
+
 export const Canvas = () => {
   const { 
     canvasNodes, 
@@ -23,7 +32,7 @@ export const Canvas = () => {
     addCanvasNode,
     deleteCanvasNode, 
     theme, 
-    sendMessage,
+    sendMessage, // Assuming this handles chat, we might need a direct generation function too
     setCurrentView,
     canvasConnections,
     setCanvasConnections
@@ -39,6 +48,9 @@ export const Canvas = () => {
   const [connectingSource, setConnectingSource] = useState(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [hoveredConnection, setHoveredConnection] = useState(null);
+  
+  // --- AI STATE ---
+  const [sparkingNodeId, setSparkingNodeId] = useState(null); // Track which node is generating ideas
 
   // --- REFS FOR GLOBAL EVENT HANDLING ---
   const stateRef = useRef({
@@ -157,7 +169,7 @@ export const Canvas = () => {
     };
   }, [selectionBox, connectingSource, updateCanvasNode]);
 
-  // --- INITIATORS (Mouse Down) ---
+  // --- ACTIONS (Mouse Down) ---
   const startCanvasDrag = (e) => {
     if (e.button === 1 || e.target === containerRef.current || e.target.classList.contains('grid-bg')) {
        if (e.shiftKey) {
@@ -200,11 +212,55 @@ export const Canvas = () => {
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
       const zoomFactor = -e.deltaY * 0.001;
-      setZoom(z => Math.min(Math.max(0.4, z + zoomFactor), 2.5));
+      setZoom(z => Math.min(Math.max(0.2, z + zoomFactor), 2.5)); // Allowed zooming out further (0.2)
     } else {
       setPan(p => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
     }
   }, []);
+
+
+  // --- AI FEATURE: THE "SPARK" ---
+  // This simulates the "Autocomplete" logic. You should replace the setTimeout 
+  // with your actual Ollama call (e.g., fetch('http://localhost:11434/api/generate'...))
+  const handleSpark = async (e, parentNode) => {
+      e.stopPropagation();
+      if (sparkingNodeId) return; // Prevent double clicks
+      setSparkingNodeId(parentNode.id);
+
+      try {
+        // --- 1. SIMULATED AI LATENCY ---
+        // REPLACE THIS BLOCK with your actual Ollama generation call.
+        // Prompt: `Generate 3 distinct, short related concepts for "${parentNode.data.title}". Return as comma-separated list.`
+        await new Promise(r => setTimeout(r, 1500)); 
+        const mockResponses = ["Technical Specs", "User Research", "Database Schema"]; 
+        // -------------------------------
+
+        // --- 2. ADD NODES TO CANVAS ---
+        mockResponses.forEach((title, index) => {
+            // Calculate position in a circle around the parent
+            const pos = getRadialPosition(parentNode.x, parentNode.y, index, mockResponses.length);
+            
+            // Add the new node
+            // Note: addCanvasNode needs to return the ID, or we generate one here.
+            // Assuming addCanvasNode creates a node and we just trigger it.
+            // Since we can't get the ID back easily from a void function without refactoring context,
+            // We will manually trigger the add and assume the connection logic later or use a different flow.
+            // For now, let's assume we just add them:
+            
+            addCanvasNode('note', pos.x, pos.y, { title: title, content: "AI generated concept..." });
+            
+            // Note: To connect them immediately, you'd need the new IDs. 
+            // If addCanvasNode doesn't return an ID, you might need to refactor Context slightly.
+            // For this UI demo, we just add the nodes.
+        });
+
+      } catch (error) {
+          console.error("AI Spark failed", error);
+      } finally {
+          setSparkingNodeId(null);
+      }
+  };
+
 
   // --- RENDER HELPERS ---
   const renderNode = (node) => {
@@ -216,18 +272,22 @@ export const Canvas = () => {
 
     const style = nodeStyles[node.type] || nodeStyles.file;
     const isSelected = selectedNodes.has(node.id);
+    const isSparking = sparkingNodeId === node.id;
+
+    // --- LEVEL OF DETAIL (LOD) LOGIC ---
+    const detailLevel = zoom > 0.6 ? 'high' : zoom > 0.35 ? 'medium' : 'low';
+    const width = detailLevel === 'low' ? 'w-[100px]' : 'w-[280px]';
+    const height = detailLevel === 'low' ? 'h-[100px]' : 'auto';
 
     return (
       <motion.div
         key={node.id}
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        // CHANGED: Removed shadow-blue-500/50, kept border-blue-500 for simple outline
-        className={`absolute flex flex-col w-[280px] rounded-xl overflow-visible backdrop-blur-xl bg-[#0a0a0a]/90 border ${isSelected ? 'border-blue-500' : style.border} transition-shadow hover:shadow-2xl ${style.glow} group z-10`}
+        className={`absolute flex flex-col ${width} ${height} rounded-xl overflow-visible backdrop-blur-xl bg-[#0a0a0a]/90 border ${isSelected ? 'border-blue-500' : style.border} transition-shadow hover:shadow-2xl ${style.glow} group z-10`}
         style={{
           left: node.x,
           top: node.y,
-          // CHANGED: Removed inline blue box-shadow. Uses default shadow always.
           boxShadow: '0 4px 30px rgba(0, 0, 0, 0.5)',
         }}
         onClick={(e) => e.stopPropagation()} 
@@ -242,47 +302,76 @@ export const Canvas = () => {
       >
         <div className={`h-0.5 w-full bg-gradient-to-r from-transparent via-${style.color.split('-')[1]}-500 to-transparent opacity-50`}></div>
 
+        {/* HEADER */}
         <div 
           className="h-9 flex items-center justify-between px-3 cursor-move bg-white/5 border-b border-white/5 select-none rounded-t-xl"
           onMouseDown={(e) => startNodeDrag(e, node)}
         >
           <div className={`flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest ${style.color}`}>
-            {style.icon}
-            {style.label}
+            {detailLevel !== 'low' ? style.icon : <div className="scale-150 pl-1">{style.icon}</div>}
+            {detailLevel !== 'low' && style.label}
           </div>
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button onClick={(e) => { e.stopPropagation(); deleteCanvasNode(node.id); }} className="text-gray-500 hover:text-red-400 p-1 rounded hover:bg-white/10"><Trash2 size={12}/></button>
-          </div>
+          
+          {detailLevel === 'high' && (
+            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                {/* AI Spark Button */}
+                <button 
+                    onClick={(e) => handleSpark(e, node)} 
+                    className={`text-gray-500 hover:text-yellow-400 p-1 rounded hover:bg-white/10 ${isSparking ? 'animate-pulse text-yellow-400' : ''}`}
+                    title="Generate related nodes (AI)"
+                >
+                    {isSparking ? <Loader2 size={12} className="animate-spin"/> : <Sparkles size={12}/>}
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); deleteCanvasNode(node.id); }} className="text-gray-500 hover:text-red-400 p-1 rounded hover:bg-white/10"><Trash2 size={12}/></button>
+            </div>
+          )}
         </div>
 
-        <div className="p-3 flex flex-col gap-2 relative" onMouseDown={e => e.stopPropagation()}>
-            <input 
-                className="bg-transparent text-white font-semibold text-sm w-full outline-none placeholder-gray-600 focus:placeholder-gray-500"
-                value={node.data.title}
-                onChange={(e) => updateCanvasNode(node.id, { data: { ...node.data, title: e.target.value } })}
-                placeholder="Node Title..."
-            />
-            <div className="h-px bg-white/5 w-full"></div>
-            <textarea 
-                className="bg-black/20 rounded p-2 text-gray-400 text-xs w-full outline-none resize-none h-24 placeholder-gray-700 leading-relaxed font-mono border border-transparent focus:border-white/10 focus:bg-black/40 transition-all custom-scrollbar"
-                value={node.data.content}
-                onChange={(e) => updateCanvasNode(node.id, { data: { ...node.data, content: e.target.value } })}
-                placeholder="// Logic..."
-                spellCheck={false}
-            />
-            <div className="flex justify-between items-center pt-1"><div className="text-[9px] text-gray-600 font-mono">ID: {node.id.slice(0,4)}</div></div>
-        </div>
+        {/* CONTENT - Based on Zoom Level */}
+        {detailLevel === 'high' ? (
+            <div className="p-3 flex flex-col gap-2 relative" onMouseDown={e => e.stopPropagation()}>
+                <input 
+                    className="bg-transparent text-white font-semibold text-sm w-full outline-none placeholder-gray-600 focus:placeholder-gray-500"
+                    value={node.data.title}
+                    onChange={(e) => updateCanvasNode(node.id, { data: { ...node.data, title: e.target.value } })}
+                    placeholder="Node Title..."
+                />
+                <div className="h-px bg-white/5 w-full"></div>
+                <textarea 
+                    className="bg-black/20 rounded p-2 text-gray-400 text-xs w-full outline-none resize-none h-24 placeholder-gray-700 leading-relaxed font-mono border border-transparent focus:border-white/10 focus:bg-black/40 transition-all custom-scrollbar"
+                    value={node.data.content}
+                    onChange={(e) => updateCanvasNode(node.id, { data: { ...node.data, content: e.target.value } })}
+                    placeholder="// Logic..."
+                    spellCheck={false}
+                />
+                <div className="flex justify-between items-center pt-1"><div className="text-[9px] text-gray-600 font-mono">ID: {node.id.slice(0,4)}</div></div>
+            </div>
+        ) : detailLevel === 'medium' ? (
+            <div className="p-4 flex items-center justify-center h-full">
+                <div className="text-white font-bold text-center leading-tight line-clamp-3">
+                    {node.data.title || "Untitled Node"}
+                </div>
+            </div>
+        ) : (
+            // Low detail (heatmap style)
+            <div className="flex-1 flex items-center justify-center opacity-30">
+                <MoreHorizontal size={24} className="text-white" />
+            </div>
+        )}
 
-        <div 
-            className="absolute -right-3 top-10 w-6 h-6 flex items-center justify-center cursor-crosshair group/connector z-50"
-            onMouseDown={(e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                setConnectingSource(node);
-            }}
-        >
-            <div className="w-2.5 h-2.5 rounded-full bg-[#1a1a1a] border border-gray-500 group-hover/connector:bg-blue-500 group-hover/connector:border-blue-400 group-hover/connector:scale-125 transition-all shadow-lg"></div>
-        </div>
+        {/* CONNECTION POINT */}
+        {detailLevel !== 'low' && (
+            <div 
+                className="absolute -right-3 top-10 w-6 h-6 flex items-center justify-center cursor-crosshair group/connector z-50"
+                onMouseDown={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    setConnectingSource(node);
+                }}
+            >
+                <div className="w-2.5 h-2.5 rounded-full bg-[#1a1a1a] border border-gray-500 group-hover/connector:bg-blue-500 group-hover/connector:border-blue-400 group-hover/connector:scale-125 transition-all shadow-lg"></div>
+            </div>
+        )}
       </motion.div>
     );
   };
@@ -362,11 +451,15 @@ export const Canvas = () => {
                     const target = canvasNodes.find(n => n.id === conn.to);
                     if (!source || !target) return null;
                     const isHovered = hoveredConnection === i;
+                    
+                    // Adjust connection points based on new dynamic sizes
+                    // Note: Ideally, dynamic calculation based on source.width/height is better, 
+                    // but fixed offsets work if we assume standard connection points are consistent.
                     return (
                         <g key={i} style={{ pointerEvents: 'auto' }}>
                           <path 
                               d={getBezierPath(source.x + 280, source.y + 44, target.x, target.y + 44)} 
-                              fill="none" stroke="transparent" strokeWidth="10" className="cursor-pointer"
+                              fill="none" stroke="transparent" strokeWidth="20" className="cursor-pointer"
                               onMouseEnter={() => setHoveredConnection(i)} onMouseLeave={() => setHoveredConnection(null)}
                               onClick={(e) => { e.stopPropagation(); if (window.confirm('Delete connection?')) setCanvasConnections(p => p.filter((_, idx) => idx !== i)); }}
                           />
@@ -409,11 +502,13 @@ export const Canvas = () => {
               <span className="text-white/10">|</span>
               <span>LINKS: <span className="text-white">{canvasConnections.length}</span></span>
               {selectedNodes.size > 0 && <span>| SELECTED: <span className="text-blue-400">{selectedNodes.size}</span></span>}
+              <span className="text-white/10">|</span>
+              <span>ZOOM: <span className="text-white">{Math.round(zoom * 100)}%</span></span>
           </div>
           <div className="glass-panel p-1 rounded-lg bg-[#0a0a0a]/50 backdrop-blur-md border border-white/10 flex flex-col gap-1 pointer-events-auto">
                 <button onClick={() => setZoom(z => Math.min(2.5, z + 0.2))} className="p-2 hover:bg-white/10 rounded-md text-gray-400 hover:text-white"><Maximize size={16}/></button>
                 <div className="text-[10px] text-center font-mono text-gray-500 py-1 border-t border-b border-white/5">{Math.round(zoom * 100)}%</div>
-                <button onClick={() => setZoom(z => Math.max(0.4, z - 0.2))} className="p-2 hover:bg-white/10 rounded-md text-gray-400 hover:text-white"><Minimize size={16}/></button>
+                <button onClick={() => setZoom(z => Math.max(0.2, z - 0.2))} className="p-2 hover:bg-white/10 rounded-md text-gray-400 hover:text-white"><Minimize size={16}/></button>
           </div>
       </div>
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,transparent_20%,#000000_100%)] opacity-60 z-20"></div>

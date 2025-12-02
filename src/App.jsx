@@ -5,8 +5,10 @@ import { Workspace } from "./components/Workspace";
 import { Cerebro } from "./components/Cerebro";
 import { ProjectDashboard } from "./components/ProjectDashboard";
 import { Chronos } from "./components/Chronos";
-import { Canvas } from "./components/Canvas"; // Added Canvas Import
+import { Canvas } from "./components/Canvas";
+import { Zenith } from "./components/Zenith"; // Kept Zenith
 import { Settings } from "./components/Settings";
+// Removed OmniBar import
 import { LuminaProvider, useLumina } from "./context/LuminaContext";
 
 const MainContent = () => {
@@ -25,6 +27,9 @@ const MainContent = () => {
       break;
     case 'canvas': 
       content = <Canvas />; 
+      break;
+    case 'zenith': 
+      content = <Zenith />; 
       break;
     case 'chat':
     default: 
