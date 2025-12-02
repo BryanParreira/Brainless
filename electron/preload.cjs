@@ -4,9 +4,12 @@ contextBridge.exposeInMainWorld('lumina', {
   // --- AI CORE ---
   checkOllamaStatus: (url) => ipcRenderer.invoke('ollama:status', url),
   getModels: (url) => ipcRenderer.invoke('ollama:models', url),
+  
   sendPrompt: (prompt, model, contextFiles, systemPrompt, settings, projectId) => 
     ipcRenderer.send('ollama:stream-prompt', { prompt, model, contextFiles, systemPrompt, settings, projectId }),
-  generateJson: (prompt, model, settings) => ipcRenderer.invoke('ollama:generate-json', { prompt, model, settings }),
+  
+  // UPDATED: Now accepts projectId for file reading context
+  generateJson: (prompt, model, settings, projectId) => ipcRenderer.invoke('ollama:generate-json', { prompt, model, settings, projectId }),
   
   // --- LISTENERS ---
   onResponseChunk: (cb) => {
@@ -34,8 +37,6 @@ contextBridge.exposeInMainWorld('lumina', {
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   resetSystem: () => ipcRenderer.invoke('system:factory-reset'),
-  
-  // *** ZENITH SAVE FUNCTION ***
   saveGeneratedFile: (content, filename) => ipcRenderer.invoke('system:save-file', { content, filename }),
 
   // --- PROJECTS ---
@@ -47,6 +48,9 @@ contextBridge.exposeInMainWorld('lumina', {
   updateProjectSettings: (id, systemPrompt) => ipcRenderer.invoke('project:update-settings', { id, systemPrompt }),
   deleteProject: (id) => ipcRenderer.invoke('project:delete', id),
   scaffoldProject: (projectId, structure) => ipcRenderer.invoke('project:scaffold', { projectId, structure }),
+  
+  // NEW: Save Dossier
+  saveProjectDossier: (id, dossier) => ipcRenderer.invoke('project:save-dossier', { id, dossier }),
 
   // --- ADVANCED FEATURES ---
   generateGraph: (id) => ipcRenderer.invoke('project:generate-graph', id),

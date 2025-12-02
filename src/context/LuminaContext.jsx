@@ -25,7 +25,7 @@ const messagesReducer = (state, action) => {
 };
 
 export const LuminaProvider = ({ children }) => {
-  // --- GLOBAL SETTINGS ---
+  // --- STATE ---
   const [settings, setSettings] = useState({
     ollamaUrl: "http://127.0.0.1:11434",
     defaultModel: "",
@@ -37,7 +37,6 @@ export const LuminaProvider = ({ children }) => {
     chatDensity: 'comfortable'
   });
 
-  // --- THEME ENGINE ---
   const theme = useMemo(() => {
     const isDev = settings.developerMode;
     return {
@@ -52,7 +51,6 @@ export const LuminaProvider = ({ children }) => {
     };
   }, [settings.developerMode]);
 
-  // --- CORE STATE ---
   const [messages, messagesDispatch] = useReducer(messagesReducer, []);
   const [isLoading, setIsLoading] = useState(false);
   const [isOllamaRunning, setIsOllamaRunning] = useState(false);
@@ -68,6 +66,7 @@ export const LuminaProvider = ({ children }) => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [calendarEvents, setCalendarEvents] = useState([]);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [initError, setInitError] = useState(null);
   const [activeArtifact, setActiveArtifact] = useState(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
@@ -94,36 +93,21 @@ export const LuminaProvider = ({ children }) => {
     const init = async () => {
       try {
         if (!window.lumina) { setIsInitialized(true); return; }
-        
-        const savedSettings = await window.lumina.loadSettings();
-        setSettings(prev => ({ ...prev, ...savedSettings }));
-
-        const [isRunning, models, sessionsList, projectsList] = await Promise.all([
-          window.lumina.checkOllamaStatus(savedSettings.ollamaUrl),
-          window.lumina.getModels(savedSettings.ollamaUrl).catch(() => []),
+        const s = await window.lumina.loadSettings();
+        setSettings(prev => ({ ...prev, ...s }));
+        const [r, m, se, p] = await Promise.all([
+          window.lumina.checkOllamaStatus(s.ollamaUrl),
+          window.lumina.getModels(s.ollamaUrl).catch(() => []),
           window.lumina.getSessions().catch(() => []),
           window.lumina.getProjects().catch(() => [])
         ]);
-
-        setIsOllamaRunning(isRunning);
-        setAvailableModels(models);
-        setSessions(sessionsList);
-        setProjects(projectsList);
-
+        setIsOllamaRunning(r); setAvailableModels(m); setSessions(se); setProjects(p);
         try {
-          if (window.lumina.loadCalendar) {
-            const events = await window.lumina.loadCalendar();
-            setCalendarEvents(events || []);
-          }
+          const events = await window.lumina.loadCalendar();
+          setCalendarEvents(events || []);
         } catch (e) {}
-
-        if (models.length > 0) {
-          const modelToUse = models.includes(savedSettings.defaultModel) ? savedSettings.defaultModel : models[0];
-          setCurrentModel(modelToUse);
-        }
-
-        setSessionId(uuidv4());
-        setIsInitialized(true);
+        if (m.length > 0) setCurrentModel(m.includes(s.defaultModel) ? s.defaultModel : m[0]);
+        setSessionId(uuidv4()); setIsInitialized(true);
       } catch (error) { setIsInitialized(true); }
     };
     init();
@@ -137,9 +121,7 @@ export const LuminaProvider = ({ children }) => {
       messagesDispatch({ type: 'APPEND_TO_LAST', payload: chunk });
     });
     const cleanupError = window.lumina.onAIError && window.lumina.onAIError((msg) => {
-      setIsLoading(false);
-      messagesDispatch({ type: 'ADD_ASSISTANT_MESSAGE' });
-      messagesDispatch({ type: 'APPEND_TO_LAST', payload: `\n\n**Error:** ${msg}` });
+      setIsLoading(false); messagesDispatch({ type: 'ADD_ASSISTANT_MESSAGE' }); messagesDispatch({ type: 'APPEND_TO_LAST', payload: `\n\n**Error:** ${msg}` });
     });
     return () => { cleanupChunk?.(); cleanupError?.(); };
   }, [isInitialized]);
@@ -202,6 +184,7 @@ export const LuminaProvider = ({ children }) => {
       setSessions(await window.lumina.getSessions());
   }, []);
 
+  // Project Actions
   const createProject = useCallback(async (name) => {
       const newProj = await window.lumina.createProject({ id: uuidv4(), name });
       setProjects(p => [...p, newProj]);
@@ -225,10 +208,8 @@ export const LuminaProvider = ({ children }) => {
     if (!activeProject) return; 
     try { 
       const newFiles = await window.lumina.addFilesToProject(activeProject.id); 
-      // Update projects list immediately
       const updatedProjects = await window.lumina.getProjects();
       setProjects(updatedProjects);
-      // Update active project if it matches
       const updatedActive = updatedProjects.find(p => p.id === activeProject.id);
       if (updatedActive) setActiveProject(updatedActive);
     } catch (e) { console.error('Add files failed:', e); } 
@@ -276,7 +257,6 @@ export const LuminaProvider = ({ children }) => {
       await window.lumina.saveCalendar(updated);
   }, [calendarEvents]);
 
-  // Generate Schedule
   const generateSchedule = useCallback(async (topic, targetDate, duration, goals) => {
     if (!topic || !targetDate) { alert('Please provide a topic and target date'); return; }
     const start = new Date();
@@ -303,23 +283,20 @@ export const LuminaProvider = ({ children }) => {
         if (d > end) break;
         newEvents.push({ id: uuidv4(), title: `${steps[i].t}: ${topic}`, date: dateStr, type: settings.developerMode ? 'task' : 'study', priority: steps[i].p, notes: `Goals: ${goals || 'Complete section'}`, time: '10:00' });
     }
-    
     newEvents.push({ id: uuidv4(), title: `DEADLINE: ${topic}`, date: targetDate, type: 'deadline', priority: 'high', notes: 'Final Submission / Test', time: '23:59' });
-
     const updated = [...calendarEvents, ...newEvents];
     setCalendarEvents(updated);
     if(window.lumina) await window.lumina.saveCalendar(updated);
     setCurrentView('chronos');
   }, [calendarEvents, settings]);
 
-  // Flashpoint
   const runFlashpoint = useCallback(async () => {
     if (!currentModel) { alert("Please select an AI model first."); return; }
     const context = messages.slice(-6).map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n').slice(0, 4000) || "General Knowledge";
     setIsLoading(true);
     messagesDispatch({ type: 'ADD_USER_MESSAGE', payload: 'Generate a flashcard deck from our current study session.' });
     try {
-      const prompt = `CONTEXT:\n${context}\nTASK: Generate 8-10 concise study flashcards based on the context above. Return ONLY valid JSON: { "cards": [{ "front": "Question", "back": "Answer" }] }`;
+      const prompt = `CONTEXT:\n${context}\nTASK: Generate 8-10 concise study flashcards. Return ONLY valid JSON: { "cards": [{ "front": "Question", "back": "Answer" }] }`;
       const response = await window.lumina.generateJson(prompt, currentModel, settings);
       let deck = [];
       if (Array.isArray(response)) deck = response;
@@ -331,11 +308,10 @@ export const LuminaProvider = ({ children }) => {
       } else throw new Error('Invalid JSON');
     } catch (e) {
       messagesDispatch({ type: 'ADD_ASSISTANT_MESSAGE' });
-      messagesDispatch({ type: 'APPEND_TO_LAST', payload: 'Error generating flashcards: ' + e.message });
+      messagesDispatch({ type: 'APPEND_TO_LAST', payload: 'Error: ' + e.message });
     } finally { setIsLoading(false); }
   }, [currentModel, settings, messages]);
 
-  // Blueprint
   const runBlueprint = useCallback(async (description) => {
     if (!activeProject || !currentModel) return;
     setIsLoading(true);
@@ -362,7 +338,6 @@ export const LuminaProvider = ({ children }) => {
     } finally { setIsLoading(false); }
   }, [activeProject, currentModel, settings]);
 
-  // Diff Doctor
   const runDiffDoctor = useCallback(async () => {
     if (!activeProject || !gitStatus || gitStatus.clean) return;
     setIsLoading(true);
@@ -375,7 +350,6 @@ export const LuminaProvider = ({ children }) => {
     } catch (e) { setIsLoading(false); }
   }, [activeProject, gitStatus, currentModel, settings]);
 
-  // Deep Research
   const runDeepResearch = useCallback(async (url) => {
     if (!activeProject) return;
     setIsLoading(true);
@@ -387,12 +361,39 @@ export const LuminaProvider = ({ children }) => {
       setProjects(updatedProjects);
       const updatedProject = updatedProjects.find(p => p.id === activeProject.id);
       if (updatedProject) setActiveProject(updatedProject);
-      const prompt = `Analyze this scraped content and generate a structured Research Report using Markdown.\n\nCONTENT:\n${rawContent}`;
+      const prompt = `Analyze this content and report.\n\nCONTENT:\n${rawContent}`;
       window.lumina.sendPrompt(prompt, currentModel, [], activeProject.systemPrompt, settings);
     } catch (e) {
       messagesDispatch({ type: 'APPEND_TO_LAST', payload: `\n\n**Error:** ${e.message}` });
       setIsLoading(false);
     }
+  }, [activeProject, currentModel, settings]);
+
+  // *** NEW: DOSSIER GENERATION LOGIC ***
+  const generateDossier = useCallback(async () => {
+    if (!activeProject || !currentModel) return;
+    setIsLoading(true);
+    try {
+        const prompt = `Analyze these project files. 
+        Return a JSON object with: 
+        { 
+          "summary": "A concise 2-sentence summary of what this project is about.", 
+          "tags": ["Tag1", "Tag2", "Tag3"], 
+          "questions": ["Suggest a relevant question 1?", "Suggest a relevant question 2?", "Suggest a relevant question 3?"] 
+        }`;
+        
+        // Pass projectId to backend so it reads the file content
+        const dossier = await window.lumina.generateJson(prompt, currentModel, settings, activeProject.id);
+        
+        if (dossier && !dossier.error) {
+            await window.lumina.saveProjectDossier(activeProject.id, dossier);
+            
+            // Immediate UI Update
+            setActiveProject(prev => ({ ...prev, dossier }));
+            setProjects(prev => prev.map(p => p.id === activeProject.id ? { ...p, dossier } : p));
+        }
+    } catch (e) { console.error("Dossier failed", e); } 
+    finally { setIsLoading(false); }
   }, [activeProject, currentModel, settings]);
 
   const openLabBench = useCallback((content, language) => { setActiveArtifact({ content, language }); }, []);
@@ -410,6 +411,7 @@ export const LuminaProvider = ({ children }) => {
     closeGlobalSettings: () => setIsSettingsOpen(false), isSettingsOpen,
     canvasNodes, addCanvasNode, updateCanvasNode, deleteCanvasNode, canvasConnections, setCanvasConnections,
     openLabBench, closeLabBench, runFlashpoint, runBlueprint, runDiffDoctor, runDeepResearch,
+    generateDossier, // <--- EXPOSED
     togglePodcast: () => {
         if(isSpeaking) { window.speechSynthesis.cancel(); setIsSpeaking(false); }
         else if(messages.length > 0) {

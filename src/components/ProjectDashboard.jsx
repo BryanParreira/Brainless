@@ -3,7 +3,7 @@ import { useLumina } from '../context/LuminaContext';
 import { 
   Folder, File, Globe, GitBranch, FolderPlus, Hash, 
   Layout, MoreVertical, Trash, FileCode, Copy, ArrowRight,
-  GitCommit, CheckCircle2 
+  GitCommit, CheckCircle2, Sparkles, BrainCircuit, Tag
 } from 'lucide-react';
 import clsx from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -29,7 +29,6 @@ const FileItem = React.memo(({ file, index, theme, onOpen, onDelete }) => {
             break;
         case 'copy':
             navigator.clipboard.writeText(file.path);
-            // Optional: You could trigger a toast here if you passed a showToast prop
             break;
         case 'delete':
             // Simple confirmation before deleting
@@ -126,7 +125,6 @@ const GitStatusCard = React.memo(({ gitStatus, theme }) => {
             setIsCommitting(false);
             setCommitMsg("");
             setIsExpanded(false);
-            // In a real app, you would refresh gitStatus here
             alert("Changes committed locally (mock).");
         }, 1000);
     };
@@ -261,17 +259,77 @@ const EmptyState = React.memo(({ addFolder, theme }) => (
 
 EmptyState.displayName = 'EmptyState';
 
+// --- NEW DOSSIER COMPONENT ---
+const DossierCard = ({ dossier, onGenerate, isLoading, theme }) => {
+  // 1. CTA STATE (No dossier exists yet)
+  if (!dossier) {
+    return (
+      <div className="p-6 rounded-2xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-white/10 flex items-center justify-between shadow-lg mb-6 backdrop-blur-sm">
+        <div className="flex items-center gap-4">
+           <div className={`p-3 rounded-xl bg-white/10 ${theme.accentText}`}><Sparkles size={20}/></div>
+           <div>
+              <h3 className="text-sm font-bold text-white">Generate Intelligence Dossier</h3>
+              <p className="text-xs text-gray-400">Analyze project files to auto-generate summary, tags, and insights.</p>
+           </div>
+        </div>
+        <button 
+          onClick={onGenerate} 
+          disabled={isLoading}
+          className={`px-4 py-2 rounded-xl bg-white text-black text-xs font-bold hover:scale-105 transition-transform flex items-center gap-2 shadow-lg`}
+        >
+          {isLoading ? <Sparkles size={14} className="animate-spin"/> : <BrainCircuit size={14}/>}
+          {isLoading ? 'Analyzing...' : 'Generate Dossier'}
+        </button>
+      </div>
+    );
+  }
+
+  // 2. DOSSIER CONTENT STATE (Vertical Gradient Bar Removed)
+  return (
+    <div className="p-6 rounded-2xl bg-[#0A0A0A] border border-white/10 shadow-2xl relative overflow-hidden group mb-6">
+       
+       <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest">
+             <BrainCircuit size={14} className={theme.accentText}/> Intelligence Dossier
+          </div>
+          {/* Tags */}
+          <div className="flex gap-2">
+             {dossier.tags?.map((tag, i) => (
+               <span key={i} className="text-[10px] bg-white/5 px-2 py-1 rounded-full text-gray-300 border border-white/5 flex items-center gap-1">
+                 <Tag size={8}/> {tag}
+               </span>
+             ))}
+          </div>
+       </div>
+
+       <p className="text-sm text-gray-200 leading-relaxed font-serif italic border-l-2 border-white/10 pl-4 mb-6">
+          "{dossier.summary}"
+       </p>
+
+       <div className="grid grid-cols-2 gap-3">
+          {dossier.questions?.map((q, i) => (
+             <button key={i} className="text-left text-[11px] p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 text-gray-400 hover:text-white transition-colors flex items-center gap-2">
+                <span className={`font-bold ${theme.accentText}`}>?</span> {q}
+             </button>
+          ))}
+       </div>
+    </div>
+  );
+};
+
 // --- MAIN DASHBOARD ---
 export const ProjectDashboard = React.memo(() => {
-  // 1. EXTRACT openFile and deleteFile FROM CONTEXT
+  // 1. EXTRACT ALL REQUIRED PROPS INCLUDING DOSSIER LOGIC
   const { 
     activeProject, 
     gitStatus, 
     addFolder, 
     theme, 
     settings,
-    openFile,     // Assuming this exists in your context
-    deleteFile    // Assuming this exists in your context
+    openFile,     
+    deleteFile,
+    generateDossier, // <--- New Context Function
+    isLoading        // <--- For loading state
   } = useLumina();
 
   // Memoize file list rendering
@@ -319,6 +377,14 @@ export const ProjectDashboard = React.memo(() => {
             </button>
           </div>
         </div>
+
+        {/* --- INTELLIGENCE DOSSIER (Inserted Here) --- */}
+        <DossierCard 
+           dossier={activeProject.dossier} 
+           onGenerate={generateDossier} 
+           isLoading={isLoading} 
+           theme={theme} 
+        />
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

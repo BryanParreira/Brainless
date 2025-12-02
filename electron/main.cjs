@@ -5,22 +5,23 @@ const { createTray } = require('./tray.cjs');
 const { autoUpdater } = require("electron-updater");
 const log = require('electron-log');
 
-// --- 1. LOGGING & UPDATER CONFIG ---
+// --- 1. CONFIGURATION ---
 log.transports.file.level = 'info';
 autoUpdater.logger = log;
-autoUpdater.autoDownload = false; // We manually trigger download
+autoUpdater.autoDownload = false; // Manual trigger
 autoUpdater.autoInstallOnAppQuit = true;
 
-// Lazy Load Heavy Dependencies (Optimizes Startup)
+// --- 2. LAZY LOAD HEAVY DEPENDENCIES (Performance Optimization) ---
+// We load these only when needed to keep app startup fast, but they are fully preserved.
 const loadPdf = () => require('pdf-parse');
 const loadCheerio = () => require('cheerio');
 const loadGit = () => require('simple-git');
 
-// Global Vars
+// Global References
 let mainWindow;
 let tray = null; 
 
-// --- 2. PATHS & DIRS ---
+// --- 3. FILE SYSTEM PATHS ---
 const getUserDataPath = () => app.getPath('userData');
 const getSessionsPath = () => path.join(getUserDataPath(), 'sessions');
 const getProjectsPath = () => path.join(getUserDataPath(), 'projects');
@@ -28,7 +29,7 @@ const getCachePath = () => path.join(getProjectsPath(), 'cache');
 const getSettingsPath = () => path.join(getUserDataPath(), 'settings.json');
 const getCalendarPath = () => path.join(getUserDataPath(), 'calendar.json');
 
-// Ensure directories
+// Ensure directories exist
 [getSessionsPath(), getProjectsPath(), getCachePath()].forEach(dir => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
@@ -45,7 +46,7 @@ const DEFAULT_SETTINGS = {
   chatDensity: 'comfortable'
 };
 
-// --- 3. WINDOW CREATION ---
+// --- 4. WINDOW MANAGEMENT ---
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -53,7 +54,7 @@ function createWindow() {
     backgroundColor: '#030304',
     show: false,
     titleBarStyle: 'hiddenInset',
-    vibrancy: 'ultra-dark',
+    vibrancy: 'ultra-dark', // MacOS only
     visualEffectState: 'active',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -74,7 +75,7 @@ function createWindow() {
   return mainWindow;
 }
 
-// --- 4. UPDATER LOGIC (FIXED) ---
+// --- 5. UPDATER LOGIC (FIXED) ---
 function setupUpdater() {
   ipcMain.on('check-for-updates', () => {
     if (!app.isPackaged) {
@@ -91,21 +92,13 @@ function setupUpdater() {
     });
   });
 
-  // FIX: Force restart immediately after quit
+  // FORCE RESTART
   ipcMain.on('quit-and-install', () => { 
       autoUpdater.quitAndInstall(false, true); 
   });
 
   autoUpdater.on('checking-for-update', () => mainWindow?.webContents.send('update-message', { status: 'checking', text: 'Checking...' }));
-  
-  autoUpdater.on('update-available', (info) => {
-      mainWindow?.webContents.send('update-message', { 
-          status: 'available', 
-          text: `Version ${info.version} available!`, 
-          version: info.version 
-      });
-  });
-  
+  autoUpdater.on('update-available', (info) => mainWindow?.webContents.send('update-message', { status: 'available', text: `Version ${info.version} available!`, version: info.version }));
   autoUpdater.on('update-not-available', () => mainWindow?.webContents.send('update-message', { status: 'not-available', text: 'You are on the latest version.' }));
   
   autoUpdater.on('download-progress', (progressObj) => {
@@ -126,7 +119,8 @@ function setupUpdater() {
   });
 }
 
-// --- 5. SMART CONTEXT ENGINE (READS FILES/PDFS) ---
+// --- 6. HEAVY CONTEXT ENGINE (FILES & PDFS) ---
+// This reads your project files. It is critical for Chat, Dossier, and Deep Research.
 async function readProjectFiles(projectFiles) {
   const MAX_CONTEXT_CHARS = 128000; 
   let currentChars = 0;
@@ -143,7 +137,7 @@ async function readProjectFiles(projectFiles) {
     }
 
     try {
-      // 1. Handle Web URLs (Deep Research Cache)
+      // A. Handle Web URLs (Cached from Deep Research)
       if (file.type === 'url') {
         const filePath = path.join(getCachePath(), file.cacheFile);
         if (fs.existsSync(filePath)) {
@@ -158,17 +152,17 @@ async function readProjectFiles(projectFiles) {
         continue;
       }
 
-      // 2. Skip Missing or Huge Files
+      // B. Validation
       if (!fs.existsSync(file.path)) continue;
       const stats = await fs.promises.stat(file.path);
-      if (stats.size > 20 * 1024 * 1024) continue; // Skip >20MB
+      if (stats.size > 20 * 1024 * 1024) continue; // Skip huge files (>20MB)
       
       let fileContent = "";
       
-      // 3. PDF PARSING (Crucial)
+      // C. PDF PARSING (Heavy Logic)
       if (file.path.toLowerCase().endsWith('.pdf')) {
         try {
-          const pdf = loadPdf();
+          const pdf = loadPdf(); // Loaded on demand
           const dataBuffer = await fs.promises.readFile(file.path);
           const data = await pdf(dataBuffer);
           fileContent = data.text;
@@ -177,10 +171,11 @@ async function readProjectFiles(projectFiles) {
           fileContent = "[ERROR: Could not parse PDF text.]";
         }
       } 
-      // 4. TEXT FILES
+      // D. STANDARD TEXT (Code, MD, TXT)
       else if (!['png','jpg','jpeg','gif','exe','bin','zip','iso','dll','dmg'].includes(file.type.toLowerCase())) {
         fileContent = await fs.promises.readFile(file.path, 'utf-8');
-        if (fileContent.indexOf('\0') !== -1) fileContent = ""; // Binary check
+        // Simple binary check (prevents reading executables as text)
+        if (fileContent.indexOf('\0') !== -1) fileContent = ""; 
       }
 
       if (fileContent) {
@@ -200,7 +195,7 @@ async function readProjectFiles(projectFiles) {
   return context;
 }
 
-// --- 6. HELPER: RECURSIVE SCAN ---
+// --- 7. HELPER: RECURSIVE SCAN ---
 async function scanDirectory(dirPath, fileList = []) {
   try {
     const files = await fs.promises.readdir(dirPath, { withFileTypes: true });
@@ -220,25 +215,30 @@ async function scanDirectory(dirPath, fileList = []) {
   return fileList;
 }
 
-// --- 7. HELPER: GIT HANDLER ---
+// --- 8. HELPER: GIT HANDLER (Heavy Logic) ---
 const gitHandler = {
   async getStatus(rootPath) { try { if (!rootPath || !fs.existsSync(path.join(rootPath, '.git'))) return null; const git = loadGit()(rootPath); const status = await git.status(); return { current: status.current, modified: status.modified, staged: status.staged, clean: status.isClean() }; } catch (e) { return null; } },
   async getDiff(rootPath) { try { if (!rootPath) return ""; const git = loadGit()(rootPath); let diff = await git.diff(['--staged']); if (!diff) diff = await git.diff(); return diff; } catch (e) { return ""; } }
 };
 
-// --- 8. APP READY ---
+// --- 9. APP INITIALIZATION ---
 app.whenReady().then(() => {
   createWindow();
-  if (createTray) tray = createTray(mainWindow); // Optional Tray
+  tray = createTray(mainWindow); 
   setupUpdater();
+  
   if (app.isPackaged) autoUpdater.checkForUpdatesAndNotify();
 
-  // --- HANDLERS: SYSTEM ---
+  // ==========================================
+  // IPC HANDLERS API
+  // ==========================================
+
+  // --- SYSTEM ---
   ipcMain.handle('settings:load', async () => { try { if (fs.existsSync(getSettingsPath())) return { ...DEFAULT_SETTINGS, ...JSON.parse(await fs.promises.readFile(getSettingsPath(), 'utf-8')) }; } catch (e) { } return DEFAULT_SETTINGS; });
   ipcMain.handle('settings:save', async (e, settings) => { await fs.promises.writeFile(getSettingsPath(), JSON.stringify(settings, null, 2)); return true; });
   ipcMain.handle('system:factory-reset', async () => { try { const del = async (d) => { if(fs.existsSync(d)){ for(const f of await fs.promises.readdir(d)){ const c=path.join(d,f); if((await fs.promises.lstat(c)).isDirectory()) await fs.promises.rm(c,{recursive:true}); else await fs.promises.unlink(c); } } }; await del(getSessionsPath()); await del(getProjectsPath()); await fs.promises.writeFile(getSettingsPath(), JSON.stringify(DEFAULT_SETTINGS)); return true; } catch(e){ return false; } });
   
-  // --- HANDLER: ZENITH SAVE ---
+  // --- ZENITH SAVE (Native Dialog) ---
   ipcMain.handle('system:save-file', async (e, { content, filename }) => {
     const { filePath } = await dialog.showSaveDialog(mainWindow, {
       defaultPath: filename || 'zenith-draft.md',
@@ -255,7 +255,7 @@ app.whenReady().then(() => {
     return false;
   });
 
-  // --- HANDLERS: PROJECT ---
+  // --- PROJECT MANAGEMENT ---
   ipcMain.handle('project:list', async () => { const d = getProjectsPath(); const f = await fs.promises.readdir(d); const p = []; for (const x of f) { if(x.endsWith('.json')) p.push(JSON.parse(await fs.promises.readFile(path.join(d, x), 'utf-8'))); } return p; });
   ipcMain.handle('project:create', async (e, { id, name }) => { const p = path.join(getProjectsPath(), `${id}.json`); const n = { id, name, files: [], systemPrompt: "", createdAt: new Date() }; await fs.promises.writeFile(p, JSON.stringify(n, null, 2)); return n; });
   ipcMain.handle('project:delete', async (e, id) => { await fs.promises.unlink(path.join(getProjectsPath(), `${id}.json`)); return true; });
@@ -264,7 +264,7 @@ app.whenReady().then(() => {
   ipcMain.handle('project:add-files', async (e, projectId) => { const r = await dialog.showOpenDialog(mainWindow, { properties: ['openFile', 'multiSelections'] }); if (!r.canceled) { const p = path.join(getProjectsPath(), `${projectId}.json`); const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); const n = r.filePaths.map(x => ({ path: x, name: path.basename(x), type: path.extname(x).substring(1) })); d.files.push(...n.filter(f => !d.files.some(ex => ex.path === f.path))); await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); return d.files; } return null; });
   ipcMain.handle('project:add-folder', async (e, projectId) => { const r = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] }); if (!r.canceled && r.filePaths.length > 0) { const folderPath = r.filePaths[0]; const allFiles = await scanDirectory(folderPath); const p = path.join(getProjectsPath(), `${projectId}.json`); const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); const newFiles = allFiles.filter(f => !d.files.some(existing => existing.path === f.path)); d.files.push(...newFiles); d.rootPath = folderPath; await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); return d.files; } return null; });
 
-  // --- HANDLER: DEEP RESEARCH (Web Scraping) ---
+  // --- DEEP RESEARCH (Web Scraping using Cheerio) ---
   ipcMain.handle('project:add-url', async (e, { projectId, url }) => { 
       try { 
           const cheerio = loadCheerio(); 
@@ -295,7 +295,7 @@ app.whenReady().then(() => {
       } catch (e) { throw new Error("Research Failed"); } 
   });
 
-  // --- HANDLER: SCAFFOLDING (Blueprints) ---
+  // --- SCAFFOLDING (Blueprints) ---
   ipcMain.handle('project:scaffold', async (e, { projectId, structure }) => {
     const p = path.join(getProjectsPath(), `${projectId}.json`);
     if (!fs.existsSync(p)) throw new Error("Project not found");
@@ -315,7 +315,7 @@ app.whenReady().then(() => {
     return results;
   });
 
-  // --- HANDLERS: SESSION & CALENDAR ---
+  // --- SESSION & CALENDAR ---
   ipcMain.handle('session:save', async (e, { id, title, messages, date }) => { const p = path.join(getSessionsPath(), `${id}.json`); let t = title; if(fs.existsSync(p)){ const ex = JSON.parse(await fs.promises.readFile(p,'utf-8')); if(ex.title && ex.title!=="New Chat" && (!title||title==="New Chat")) t = ex.title; } await fs.promises.writeFile(p, JSON.stringify({ id, title:t||"New Chat", messages, date }, null, 2)); return true; });
   ipcMain.handle('session:list', async () => { const d = getSessionsPath(); const f = await fs.promises.readdir(d); const s = []; for(const x of f){ if(x.endsWith('.json')){ try{ const j=JSON.parse(await fs.promises.readFile(path.join(d,x),'utf-8')); s.push({id:j.id, title:j.title, date:j.date}); }catch(e){} } } return s.sort((a,b)=>new Date(b.date)-new Date(a.date)); });
   ipcMain.handle('session:load', async (e, id) => JSON.parse(await fs.promises.readFile(path.join(getSessionsPath(), `${id}.json`), 'utf-8')));
@@ -324,12 +324,24 @@ app.whenReady().then(() => {
   ipcMain.handle('calendar:load', async () => { try { if (fs.existsSync(getCalendarPath())) return JSON.parse(await fs.promises.readFile(getCalendarPath(), 'utf-8')); return []; } catch (e) { return []; } });
   ipcMain.handle('calendar:save', async (e, events) => { try { await fs.promises.writeFile(getCalendarPath(), JSON.stringify(events, null, 2)); return true; } catch (e) { return false; } });
 
-  // --- HANDLERS: GRAPH & GIT ---
+  // --- DOSSIER SAVE (New Feature) ---
+  ipcMain.handle('project:save-dossier', async (e, { id, dossier }) => {
+    const p = path.join(getProjectsPath(), `${id}.json`);
+    if (fs.existsSync(p)) {
+      const d = JSON.parse(await fs.promises.readFile(p, 'utf-8'));
+      d.dossier = dossier;
+      await fs.promises.writeFile(p, JSON.stringify(d, null, 2));
+      return d;
+    }
+    return null;
+  });
+
+  // --- GRAPH & GIT ---
   ipcMain.handle('project:generate-graph', async (e, projectId) => { const p = path.join(getProjectsPath(), `${projectId}.json`); if (!fs.existsSync(p)) return { nodes: [], links: [] }; const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); const nodes = []; d.files.forEach((file) => nodes.push({ id: file.name, group: file.type, path: file.path })); return { nodes, links: [] }; });
   ipcMain.handle('git:status', async (e, projectId) => { const p = path.join(getProjectsPath(), `${projectId}.json`); if (!fs.existsSync(p)) return null; const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); return d.rootPath ? await gitHandler.getStatus(d.rootPath) : null; });
   ipcMain.handle('git:diff', async (e, projectId) => { const p = path.join(getProjectsPath(), `${projectId}.json`); const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); return d.rootPath ? await gitHandler.getDiff(d.rootPath) : ""; });
 
-  // --- HANDLER: OLLAMA STREAMING ---
+  // --- OLLAMA STREAMING ---
   ipcMain.on('ollama:stream-prompt', async (event, { prompt, model, contextFiles, systemPrompt, settings }) => {
     const config = settings || DEFAULT_SETTINGS;
     let baseUrl = (config.ollamaUrl || "http://127.0.0.1:11434").replace(/\/$/, '').replace('localhost', '127.0.0.1');
@@ -373,27 +385,40 @@ app.whenReady().then(() => {
     req.end();
   });
 
-  // --- HANDLER: OLLAMA JSON (Flashcard Fix) ---
-  ipcMain.handle('ollama:generate-json', async (e, { prompt, model, settings }) => { 
+  // --- OLLAMA JSON GENERATION (FIXED + ENHANCED FOR FLASHCARDS & DOSSIER) ---
+  ipcMain.handle('ollama:generate-json', async (e, { prompt, model, settings, projectId }) => { 
     const config = settings || DEFAULT_SETTINGS; 
     let baseUrl = (config.ollamaUrl || "http://127.0.0.1:11434").replace(/\/$/, '').replace('localhost', '127.0.0.1');
     let selectedModel = model || config.defaultModel;
     if(!selectedModel) { try { const r = await fetch(`${baseUrl}/api/tags`); const d = await r.json(); if(d.models?.length) selectedModel = d.models[0].name; } catch(e){} }
     
+    // READ FILES IF PROJECT ID PROVIDED (For Dossier)
+    let contextStr = "";
+    if (projectId) {
+        const p = path.join(getProjectsPath(), `${projectId}.json`);
+        if (fs.existsSync(p)) {
+            const d = JSON.parse(await fs.promises.readFile(p, 'utf-8'));
+            contextStr = await readProjectFiles(d.files || []);
+        }
+    }
+
+    const fullPrompt = contextStr ? `CONTEXT:\n${contextStr}\n\nTASK: ${prompt}` : prompt;
+
     try {
         const r = await fetch(`${baseUrl}/api/generate`, { 
             method:'POST', 
-            body:JSON.stringify({ model:selectedModel, prompt: prompt + "\n\nRETURN ONLY RAW JSON.", format:'json', stream:false }) 
+            body:JSON.stringify({ model:selectedModel, prompt: fullPrompt + "\n\nRETURN ONLY RAW JSON.", format:'json', stream:false }) 
         });
         const j = await r.json();
         
-        // CRITICAL FIX: Strip markdown before parsing
+        // CLEANUP MARKDOWN WRAPPERS (Fixes "Flashcard Error")
         let raw = j.response.trim();
         if (raw.startsWith('```json')) raw = raw.replace(/^```json\s*/, '').replace(/\s*```$/, '');
         else if (raw.startsWith('```')) raw = raw.replace(/^```\s*/, '').replace(/\s*```$/, '');
         
         return JSON.parse(raw);
     } catch(err) {
+        console.error("JSON Error", err);
         return { error: "Failed to parse JSON" };
     }
   });
