@@ -8,8 +8,8 @@
 
 **Run powerful AI workflows locally. No clouds. No limits. Pure intelligence.**
 
-[![Download](https://img.shields.io/badge/Download-Latest-blue?style=for-the-badge)](https://github.com/username/omnilab/releases)
-[![Documentation](https://img.shields.io/badge/Docs-Read-green?style=for-the-badge)](https://github.com/username/omnilab/wiki)
+[![Download](https://img.shields.io/badge/Download-Latest-blue?style=for-the-badge)](https://github.com/bryanparreira/omnilab/releases)
+[![Documentation](https://img.shields.io/badge/Docs-Read-green?style=for-the-badge)](https://github.com/bryanparreira/omnilab/wiki)
 [![License](https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge)](LICENSE)
 
 </div>
