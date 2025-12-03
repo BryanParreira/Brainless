@@ -1,11 +1,11 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, net } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, net, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { createTray } = require('./tray.cjs'); 
 const { autoUpdater } = require("electron-updater");
 const log = require('electron-log');
 
-// --- 1. CONFIGURATION (FIXED) ---
+// --- 1. CONFIGURATION ---
 log.transports.file.level = 'info';
 autoUpdater.logger = log;
 autoUpdater.autoDownload = false; // Manual trigger
@@ -15,7 +15,6 @@ autoUpdater.allowPrerelease = false;
 autoUpdater.fullChangelog = false;
 
 // --- 2. LAZY LOAD HEAVY DEPENDENCIES (Performance Optimization) ---
-// We load these only when needed to keep app startup fast, but they are fully preserved.
 const loadPdf = () => require('pdf-parse');
 const loadCheerio = () => require('cheerio');
 const loadGit = () => require('simple-git');
@@ -78,7 +77,7 @@ function createWindow() {
   return mainWindow;
 }
 
-// --- 5. UPDATER LOGIC (FIXED) ---
+// --- 5. UPDATER LOGIC ---
 function setupUpdater() {
   ipcMain.on('check-for-updates', () => {
     if (!app.isPackaged) {
@@ -88,11 +87,9 @@ function setupUpdater() {
     autoUpdater.checkForUpdates();
   });
 
-  // FIXED: Converted to async to catch startup errors
   ipcMain.on('download-update', async () => {
     try {
       log.info("User requested download...");
-      // This initiates the download. The events below handle the rest.
       await autoUpdater.downloadUpdate();
     } catch (err) {
       log.error("Download Error:", err);
@@ -134,14 +131,11 @@ function setupUpdater() {
   
   autoUpdater.on('error', (err) => {
     log.error(err);
-    // Don't show error to UI if it's just a background check failing (internet issues)
-    // Only send if user actively clicked something or during download
     mainWindow?.webContents.send('update-message', { status: 'error', text: 'Update failed.' });
   });
 }
 
 // --- 6. HEAVY CONTEXT ENGINE (FILES & PDFS) ---
-// This reads your project files. It is critical for Chat, Dossier, and Deep Research.
 async function readProjectFiles(projectFiles) {
   const MAX_CONTEXT_CHARS = 128000; 
   let currentChars = 0;
@@ -248,6 +242,17 @@ app.whenReady().then(() => {
   tray = createTray(mainWindow); 
   setupUpdater();
   
+  // [NEW] GLOBAL SHORTCUT FOR COMMAND BAR
+  globalShortcut.register('Alt+Space', () => {
+    if (mainWindow.isVisible()) {
+        mainWindow.hide();
+    } else {
+        mainWindow.show();
+        mainWindow.focus();
+        mainWindow.webContents.send('cmd-bar:toggle');
+    }
+  });
+  
   if (app.isPackaged) autoUpdater.checkForUpdatesAndNotify();
 
   // ==========================================
@@ -259,7 +264,7 @@ app.whenReady().then(() => {
   ipcMain.handle('settings:save', async (e, settings) => { await fs.promises.writeFile(getSettingsPath(), JSON.stringify(settings, null, 2)); return true; });
   ipcMain.handle('system:factory-reset', async () => { try { const del = async (d) => { if(fs.existsSync(d)){ for(const f of await fs.promises.readdir(d)){ const c=path.join(d,f); if((await fs.promises.lstat(c)).isDirectory()) await fs.promises.rm(c,{recursive:true}); else await fs.promises.unlink(c); } } }; await del(getSessionsPath()); await del(getProjectsPath()); await fs.promises.writeFile(getSettingsPath(), JSON.stringify(DEFAULT_SETTINGS)); return true; } catch(e){ return false; } });
   
-  // --- ZENITH SAVE (Native Dialog) ---
+  // --- [UPDATED] ZENITH SAVE (Native Dialog) ---
   ipcMain.handle('system:save-file', async (e, { content, filename }) => {
     const { filePath } = await dialog.showSaveDialog(mainWindow, {
       defaultPath: filename || 'zenith-draft.md',
@@ -345,7 +350,7 @@ app.whenReady().then(() => {
   ipcMain.handle('calendar:load', async () => { try { if (fs.existsSync(getCalendarPath())) return JSON.parse(await fs.promises.readFile(getCalendarPath(), 'utf-8')); return []; } catch (e) { return []; } });
   ipcMain.handle('calendar:save', async (e, events) => { try { await fs.promises.writeFile(getCalendarPath(), JSON.stringify(events, null, 2)); return true; } catch (e) { return false; } });
 
-  // --- DOSSIER SAVE (New Feature) ---
+  // --- DOSSIER SAVE ---
   ipcMain.handle('project:save-dossier', async (e, { id, dossier }) => {
     const p = path.join(getProjectsPath(), `${id}.json`);
     if (fs.existsSync(p)) {
@@ -362,7 +367,7 @@ app.whenReady().then(() => {
   ipcMain.handle('git:status', async (e, projectId) => { const p = path.join(getProjectsPath(), `${projectId}.json`); if (!fs.existsSync(p)) return null; const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); return d.rootPath ? await gitHandler.getStatus(d.rootPath) : null; });
   ipcMain.handle('git:diff', async (e, projectId) => { const p = path.join(getProjectsPath(), `${projectId}.json`); const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); return d.rootPath ? await gitHandler.getDiff(d.rootPath) : ""; });
 
-  // --- OLLAMA STREAMING ---
+  // --- OLLAMA STREAMING (Standard Chat) ---
   ipcMain.on('ollama:stream-prompt', async (event, { prompt, model, contextFiles, systemPrompt, settings }) => {
     const config = settings || DEFAULT_SETTINGS;
     let baseUrl = (config.ollamaUrl || "http://127.0.0.1:11434").replace(/\/$/, '').replace('localhost', '127.0.0.1');
@@ -406,7 +411,7 @@ app.whenReady().then(() => {
     req.end();
   });
 
-  // --- OLLAMA JSON GENERATION (FIXED + ENHANCED FOR FLASHCARDS & DOSSIER) ---
+  // --- OLLAMA JSON GENERATION (Flashcards & Dossier) ---
   ipcMain.handle('ollama:generate-json', async (e, { prompt, model, settings, projectId }) => { 
     const config = settings || DEFAULT_SETTINGS; 
     let baseUrl = (config.ollamaUrl || "http://127.0.0.1:11434").replace(/\/$/, '').replace('localhost', '127.0.0.1');
@@ -432,7 +437,7 @@ app.whenReady().then(() => {
         });
         const j = await r.json();
         
-        // CLEANUP MARKDOWN WRAPPERS (Fixes "Flashcard Error")
+        // CLEANUP MARKDOWN WRAPPERS
         let raw = j.response.trim();
         if (raw.startsWith('```json')) raw = raw.replace(/^```json\s*/, '').replace(/\s*```$/, '');
         else if (raw.startsWith('```')) raw = raw.replace(/^```\s*/, '').replace(/\s*```$/, '');
@@ -441,6 +446,33 @@ app.whenReady().then(() => {
     } catch(err) {
         console.error("JSON Error", err);
         return { error: "Failed to parse JSON" };
+    }
+  });
+
+  // --- [NEW] OLLAMA COMPLETION (Ghost Writer) ---
+  // This logic is separate to allow raw text return without JSON enforcement
+  ipcMain.handle('ollama:completion', async (e, { prompt, model, settings }) => { 
+    const config = settings || DEFAULT_SETTINGS; 
+    let baseUrl = (config.ollamaUrl || "http://127.0.0.1:11434").replace(/\/$/, '').replace('localhost', '127.0.0.1');
+    let selectedModel = model || config.defaultModel;
+    
+    if(!selectedModel) { try { const r = await fetch(`${baseUrl}/api/tags`); const d = await r.json(); if(d.models?.length) selectedModel = d.models[0].name; } catch(e){ return ""; } }
+
+    try {
+        const r = await fetch(`${baseUrl}/api/generate`, { 
+            method:'POST', 
+            body:JSON.stringify({ 
+                model: selectedModel, 
+                prompt: prompt, // No formatting, just raw prompt
+                stream: false,
+                options: { stop: ['.', '\n', '  '], temperature: 0.3 } // Quick stop for autocomplete
+            }) 
+        });
+        const j = await r.json();
+        return j.response;
+    } catch(err) {
+        console.error("Completion Error", err);
+        return "";
     }
   });
 

@@ -1,17 +1,23 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('lumina', {
-  // --- AI CORE ---
+  // ==========================================
+  // 1. AI CORE (Ollama Bridge)
+  // ==========================================
   checkOllamaStatus: (url) => ipcRenderer.invoke('ollama:status', url),
   getModels: (url) => ipcRenderer.invoke('ollama:models', url),
   
+  // Streaming Chat (Nexus)
   sendPrompt: (prompt, model, contextFiles, systemPrompt, settings, projectId) => 
     ipcRenderer.send('ollama:stream-prompt', { prompt, model, contextFiles, systemPrompt, settings, projectId }),
   
-  // UPDATED: Now accepts projectId for file reading context
+  // JSON Agent (Dossier / Flashcards)
   generateJson: (prompt, model, settings, projectId) => ipcRenderer.invoke('ollama:generate-json', { prompt, model, settings, projectId }),
   
-  // --- LISTENERS ---
+  // [NEW] Text Completion (Zenith Ghost Writer)
+  generateCompletion: (prompt, model, settings) => ipcRenderer.invoke('ollama:completion', { prompt, model, settings }),
+
+  // --- AI Listeners ---
   onResponseChunk: (cb) => {
     const sub = (_e, data) => cb(data);
     ipcRenderer.on('ollama:chunk', sub);
@@ -23,7 +29,9 @@ contextBridge.exposeInMainWorld('lumina', {
     return () => ipcRenderer.removeListener('ollama:error', sub);
   },
   
-  // --- UPDATER ---
+  // ==========================================
+  // 2. UPDATER
+  // ==========================================
   checkForUpdates: () => ipcRenderer.send('check-for-updates'),
   downloadUpdate: () => ipcRenderer.send('download-update'),
   quitAndInstall: () => ipcRenderer.send('quit-and-install'),
@@ -33,13 +41,26 @@ contextBridge.exposeInMainWorld('lumina', {
     return () => ipcRenderer.removeListener('update-message', sub);
   },
 
-  // --- SYSTEM ---
+  // ==========================================
+  // 3. SYSTEM & FILES
+  // ==========================================
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   resetSystem: () => ipcRenderer.invoke('system:factory-reset'),
+  
+  // Native File Save (Zenith)
   saveGeneratedFile: (content, filename) => ipcRenderer.invoke('system:save-file', { content, filename }),
+  
+  // [NEW] Command Bar Listener (Alt+Space)
+  onToggleCommandBar: (cb) => {
+      const sub = () => cb();
+      ipcRenderer.on('cmd-bar:toggle', sub);
+      return () => ipcRenderer.removeListener('cmd-bar:toggle', sub);
+  },
 
-  // --- PROJECTS ---
+  // ==========================================
+  // 4. PROJECT MANAGEMENT
+  // ==========================================
   getProjects: () => ipcRenderer.invoke('project:list'),
   createProject: (data) => ipcRenderer.invoke('project:create', data),
   addFilesToProject: (id) => ipcRenderer.invoke('project:add-files', id),
@@ -48,24 +69,25 @@ contextBridge.exposeInMainWorld('lumina', {
   updateProjectSettings: (id, systemPrompt) => ipcRenderer.invoke('project:update-settings', { id, systemPrompt }),
   deleteProject: (id) => ipcRenderer.invoke('project:delete', id),
   scaffoldProject: (projectId, structure) => ipcRenderer.invoke('project:scaffold', { projectId, structure }),
-  
-  // NEW: Save Dossier
   saveProjectDossier: (id, dossier) => ipcRenderer.invoke('project:save-dossier', { id, dossier }),
 
-  // --- ADVANCED FEATURES ---
+  // ==========================================
+  // 5. ADVANCED AGENTS (Graph, Research, Git)
+  // ==========================================
   generateGraph: (id) => ipcRenderer.invoke('project:generate-graph', id),
   runDeepResearch: (id, url) => ipcRenderer.invoke('agent:deep-research', { projectId: id, url }),
   getGitStatus: (id) => ipcRenderer.invoke('git:status', id),
   getGitDiff: (id) => ipcRenderer.invoke('git:diff', id),
 
-  // --- SESSIONS ---
+  // ==========================================
+  // 6. SESSIONS & CALENDAR
+  // ==========================================
   saveSession: (data) => ipcRenderer.invoke('session:save', data),
   getSessions: () => ipcRenderer.invoke('session:list'),
   loadSession: (id) => ipcRenderer.invoke('session:load', id),
   deleteSession: (id) => ipcRenderer.invoke('session:delete', id),
   renameSession: (id, title) => ipcRenderer.invoke('session:rename', { id, title }),
   
-  // --- CALENDAR ---
   loadCalendar: () => ipcRenderer.invoke('calendar:load'),
   saveCalendar: (events) => ipcRenderer.invoke('calendar:save', events),
 });
