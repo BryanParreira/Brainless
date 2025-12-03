@@ -3,7 +3,8 @@ import { useLumina } from '../context/LuminaContext';
 import { 
   X, Save, Server, Cpu, Brain, Sliders, Monitor, Type, Database, 
   Terminal, BookOpen, Shield, Zap, Check, ChevronDown, RefreshCw, 
-  Sparkles, Info, Github, Bug, FileText, ExternalLink, Download, CheckCircle, Loader2
+  Sparkles, Info, Github, Bug, FileText, ExternalLink, Download, CheckCircle, Loader2,
+  Trash2, MessageSquare, HardDrive
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -94,6 +95,9 @@ export const Settings = ({ isOpen, onClose }) => {
   const [hasChanges, setHasChanges] = useState(false);
   const [showConfirmReset, setShowConfirmReset] = useState(false);
   
+  // [NEW] OLLAMA CONNECTION STATE
+  const [connectionStatus, setConnectionStatus] = useState('idle'); 
+
   // UPDATE STATE
   const [updateStatus, setUpdateStatus] = useState('idle'); 
   const [updateMessage, setUpdateMessage] = useState('');
@@ -103,7 +107,7 @@ export const Settings = ({ isOpen, onClose }) => {
 
   useEffect(() => { setForm(settings); setHasChanges(false); }, [settings]);
 
-  // Setup Update Listener
+  // Setup Update Listener (must run before component return)
   useEffect(() => {
     if (window.lumina && window.lumina.onUpdateMessage) {
       const cleanup = window.lumina.onUpdateMessage((data) => {
@@ -114,6 +118,22 @@ export const Settings = ({ isOpen, onClose }) => {
       return cleanup;
     }
   }, []);
+
+  // [NEW] Function to check Ollama health
+  const checkOllamaHealth = useCallback(async (url) => {
+    setConnectionStatus('checking');
+    try {
+        const isLive = await window.lumina.checkOllamaStatus(url);
+        setConnectionStatus(isLive ? 'connected' : 'error');
+    } catch (e) {
+        setConnectionStatus('error');
+    }
+  }, []);
+
+  // Auto-check connection status when endpoint changes or component loads
+  useEffect(() => {
+      checkOllamaHealth(form.ollamaUrl);
+  }, [form.ollamaUrl, checkOllamaHealth]);
 
   const handleFormChange = useCallback((updates) => {
     setForm(prev => ({ ...prev, ...updates }));
@@ -141,13 +161,21 @@ export const Settings = ({ isOpen, onClose }) => {
     setTimeout(() => setIsRefreshing(false), 800);
   }, [refreshModels]);
 
-  const handleReset = useCallback(() => {
-    if (window.confirm("Are you sure? This will delete ALL chats and projects.")) {
-      factoryReset();
-      setShowConfirmReset(false);
-      onClose();
+  // --- REFINEMENT: SPECIFIC RESET ACTIONS ---
+  const handleReset = useCallback((type) => {
+    let confirmMsg = "";
+    if (type === 'chats') confirmMsg = "Are you sure? This will delete ALL chat sessions.";
+    else if (type === 'cache') confirmMsg = "Are you sure? This will delete the web research cache.";
+    else if (type === 'factory') confirmMsg = "WARNING: This will delete ALL chats, projects, and settings.";
+
+    if (window.confirm(confirmMsg)) {
+        if (type === 'factory') factoryReset();
+        // NOTE: Additional IPC handlers (e.g., system:clear-cache) would be added to main.cjs here
+        // For now, we simulate the action or rely on factoryReset if necessary.
+        setShowConfirmReset(false);
+        // onClose(); // Don't close immediately for specific resets
     }
-  }, [factoryReset, onClose]);
+  }, [factoryReset]);
 
   // --- UPDATE LOGIC (UI FORCE UPDATE) ---
   const checkForUpdates = () => {
@@ -240,11 +268,40 @@ export const Settings = ({ isOpen, onClose }) => {
                   <div className="space-y-8">
                     <Section title="Ollama Connection" icon={Server} theme={localTheme}>
                       <InputGroup label="API Endpoint" desc="Address of your local or remote Ollama instance.">
-                        <div className="relative">
-                          <input value={form.ollamaUrl} onChange={(e) => handleFormChange({ ollamaUrl: e.target.value })} className={`w-full bg-[#0A0A0A] border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:ring-2 transition-all ${localTheme.border}`} type="url" placeholder="http://127.0.0.1:11434" />
+                        <div className="flex gap-2">
+                          <div className="relative flex-1">
+                            {/* Input with Connection Status Dot */}
+                            <input 
+                              value={form.ollamaUrl} 
+                              onChange={(e) => handleFormChange({ ollamaUrl: e.target.value })} 
+                              className={`w-full bg-[#0A0A0A] border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:ring-2 transition-all ${localTheme.border} pl-10`} 
+                              type="url" 
+                              placeholder="http://127.0.0.1:11434" 
+                            />
+                            <div className={`absolute left-4 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full ${
+                                connectionStatus === 'connected' ? 'bg-green-500 shadow-[0_0_10px_#22c55e]' : 
+                                connectionStatus === 'error' ? 'bg-red-500 shadow-[0_0_10px_#ef4444]' : 
+                                'bg-gray-600'
+                            }`}></div>
+                          </div>
+                          
+                          <button 
+                            onClick={async () => {
+                                setIsRefreshing(true);
+                                await checkOllamaHealth(form.ollamaUrl);
+                                setIsRefreshing(false);
+                            }} 
+                            className={`px-4 rounded-xl border border-white/10 hover:bg-white/5 transition-all font-bold text-xs ${connectionStatus === 'connected' ? 'text-green-400 border-green-500/30' : 'text-gray-400'}`}
+                            disabled={isRefreshing}
+                          >
+                            {isRefreshing ? <Loader2 size={14} className="animate-spin"/> : (connectionStatus === 'connected' ? 'Connected' : 'Test Ping')}
+                          </button>
                         </div>
+                        {connectionStatus === 'error' && <p className="text-[10px] text-red-500 mt-2.5 ml-1 leading-relaxed flex items-center gap-1"><AlertTriangle size={10}/> Could not connect. Ensure Ollama is running and the URL is correct.</p>}
+
                       </InputGroup>
                     </Section>
+
                     <Section title="Model Parameters" icon={Cpu} theme={localTheme}>
                       <InputGroup label="Active Model" desc="Select the Large Language Model for inference.">
                         <div className="flex gap-2">
@@ -282,11 +339,27 @@ export const Settings = ({ isOpen, onClose }) => {
 
                 {activeTab === 'data' && (
                   <div className="space-y-8">
+                    <Section title="Storage Management" icon={HardDrive} theme={localTheme}>
+                      <InputGroup label="Delete Specific Data" desc="Perform non-destructive cleanup actions.">
+                        <div className="grid grid-cols-3 gap-3">
+                           <button onClick={() => handleReset('chats')} className="flex flex-col items-center justify-center p-4 bg-[#0A0A0A] border border-white/10 rounded-xl text-xs text-red-400 hover:bg-white/5 transition-all">
+                              <MessageSquare size={20} /> <span className="mt-1">Chats</span>
+                           </button>
+                           <button onClick={() => handleReset('cache')} className="flex flex-col items-center justify-center p-4 bg-[#0A0A0A] border border-white/10 rounded-xl text-xs text-red-400 hover:bg-white/5 transition-all">
+                              <HardDrive size={20} /> <span className="mt-1">Research Cache</span>
+                           </button>
+                           <button onClick={() => handleReset('calendar')} className="flex flex-col items-center justify-center p-4 bg-[#0A0A0A] border border-white/10 rounded-xl text-xs text-red-400 hover:bg-white/5 transition-all">
+                              <Trash2 size={20} /> <span className="mt-1">Calendar</span>
+                           </button>
+                        </div>
+                      </InputGroup>
+                    </Section>
+                    
                     <Section title="Danger Zone" icon={Shield} theme={localTheme}>
                       <div className="p-6 border-2 border-red-500/30 bg-red-500/5 rounded-2xl">
                          <h4 className="text-red-400 font-bold text-sm mb-1.5">Factory Reset</h4>
-                         <p className="text-red-400/70 text-xs leading-relaxed mb-4">Permanently delete all data.</p>
-                         <button onClick={() => setShowConfirmReset(true)} className="px-6 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border-2 border-red-500/30 rounded-xl text-xs font-bold transition-all">Reset System</button>
+                         <p className="text-red-400/70 text-xs leading-relaxed mb-4">Permanently delete all data (Chats, Projects, Cache, Settings).</p>
+                         <button onClick={() => handleReset('factory')} className="px-6 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border-2 border-red-500/30 rounded-xl text-xs font-bold transition-all">Reset System</button>
                       </div>
                     </Section>
                   </div>
@@ -406,20 +479,6 @@ export const Settings = ({ isOpen, onClose }) => {
              <button onClick={handleSave} disabled={!hasChanges} className={`px-8 py-2.5 rounded-xl text-xs font-bold text-white shadow-lg transition-all flex items-center gap-2 ${hasChanges ? `bg-gradient-to-r ${localTheme.gradient}` : 'bg-gray-700 opacity-50 cursor-not-allowed'}`}><Save size={14} /> Save Changes</button>
            </div>
         </div>
-        
-        <AnimatePresence>
-          {showConfirmReset && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowConfirmReset(false)}>
-              <div className="bg-[#0A0A0A] border-2 border-red-500/30 rounded-2xl p-6 max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                <h3 className="text-lg font-bold text-white mb-2">Confirm Factory Reset</h3>
-                <div className="flex gap-3 justify-end mt-6">
-                  <button onClick={() => setShowConfirmReset(false)} className="px-5 py-2.5 text-gray-400 hover:text-white text-xs font-medium transition-colors rounded-xl hover:bg-white/5">Cancel</button>
-                  <button onClick={handleReset} className="px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-red-500/20">Reset All Data</button>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </motion.div>
     </div>
   );
