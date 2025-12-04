@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLumina } from '../context/LuminaContext';
 import { 
-  PenTool, Sparkles, Maximize, Minimize, Save, Ghost, 
+  PenTool, Sparkles, Maximize, Minimize, Save, 
   AlignLeft, Clock, AlertTriangle, Brain,
   Wand2, Scissors, CheckCircle2
 } from 'lucide-react';
@@ -15,6 +15,9 @@ export const Zenith = () => {
   const [title, setTitle] = useState("");
   const [isFocusMode, setIsFocusMode] = useState(false);
   
+  // Track the active file so we save to the right place
+  const [activeFilename, setActiveFilename] = useState(null); 
+
   // Stats
   const [stats, setStats] = useState({ words: 0, readTime: 0, complexity: 'Neutral' });
   
@@ -27,6 +30,51 @@ export const Zenith = () => {
   const [showLens, setShowLens] = useState(false);
 
   const textareaRef = useRef(null);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => { isMounted.current = false; };
+  }, []);
+
+  // --- LISTENER FOR SIDEBAR EVENTS ---
+  useEffect(() => {
+    // 1. Load File Event (triggered by Sidebar)
+    const handleLoadFile = async (e) => {
+        const { filename } = e.detail;
+        try {
+            const fileContent = await window.lumina.readFile(filename);
+            if (isMounted.current) {
+                setContent(fileContent);
+                setActiveFilename(filename);
+                // Simple title extraction
+                setTitle(filename.replace(/\.(md|txt)$/, '').replace(/_/g, ' '));
+                setGhostText("");
+            }
+        } catch (err) {
+            console.error("Failed to read file:", err);
+        }
+    };
+
+    // 2. New File Event (triggered by Sidebar)
+    const handleNewFile = () => {
+        if (isMounted.current) {
+            setContent("");
+            setTitle("");
+            setActiveFilename(null);
+            setGhostText("");
+            textareaRef.current?.focus();
+        }
+    };
+
+    window.addEventListener('zenith-load-file', handleLoadFile);
+    window.addEventListener('zenith-new-file', handleNewFile);
+
+    return () => {
+        window.removeEventListener('zenith-load-file', handleLoadFile);
+        window.removeEventListener('zenith-new-file', handleNewFile);
+    };
+  }, []);
 
   // --- STATS ENGINE & AUTO-RESIZE ---
   useEffect(() => {
@@ -51,10 +99,147 @@ export const Zenith = () => {
     }
   }, [content]);
 
+  // --- ACTIONS ---
+
+  // 1. REAL GHOST WRITER
+  const triggerGhostWriter = async () => {
+    if (isAiThinking || !content) return;
+    setIsAiThinking(true);
+    
+    const context = content.slice(-1000);
+
+    try {
+        const prompt = `[INST] You are a text completion engine. Continue the following text naturally. Do NOT repeat the input. Do NOT output any conversational filler. [/INST]
+        
+        ${context}`;
+
+        const completion = await window.lumina.generateCompletion(
+            prompt, 
+            settings.defaultModel, 
+            settings
+        );
+
+        if (!isMounted.current) return;
+
+        if (completion) {
+            let cleanText = completion;
+            const lastChunk = context.slice(-50); 
+            if (cleanText.startsWith(lastChunk)) {
+                cleanText = cleanText.replace(lastChunk, "");
+            }
+            const contextEndsInPunctuation = /[.!?]$/.test(context);
+            const completionStartsWithChar = /^\w/.test(cleanText);
+            
+            if (contextEndsInPunctuation && completionStartsWithChar) {
+                 cleanText = " " + cleanText.trimStart();
+            }
+
+            setGhostText(cleanText);
+        } else {
+            setGhostText(" (No suggestion)");
+        }
+    } catch (error) {
+        console.error("AI Error", error);
+        if (isMounted.current) setGhostText(" (Connection Error)");
+    } finally {
+        if (isMounted.current) {
+            setIsAiThinking(false);
+            if (textareaRef.current) textareaRef.current.focus();
+        }
+    }
+  };
+
+  // 2. Lumina Lens
+  const handleLensAction = async (action) => {
+      setIsAiThinking(true);
+      setShowLens(false);
+      try {
+          const prompt = `
+            Task: ${action}
+            Input Text: "${selection.text}"
+            Return JSON format: { "text": "The modified text here" }
+          `;
+          
+          const result = await window.lumina.generateJson(prompt, settings.defaultModel, settings);
+          
+          if (isMounted.current && result && result.text) {
+             const before = content.substring(0, selection.start);
+             const after = content.substring(selection.end);
+             setContent(before + result.text + after);
+          }
+      } catch (e) {
+          console.error("Lens Error", e);
+      } finally {
+          if (isMounted.current) {
+              setIsAiThinking(false);
+              setSelection({ start: 0, end: 0, text: "" });
+          }
+      }
+  };
+
+  const handleSelect = (e) => {
+      const start = e.target.selectionStart;
+      const end = e.target.selectionEnd;
+      if (start !== end) {
+          setSelection({ start, end, text: content.substring(start, end) });
+          setShowLens(true);
+      } else {
+          setShowLens(false);
+      }
+  };
+
+  const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'j') { 
+          e.preventDefault(); 
+          triggerGhostWriter(); 
+      }
+      if (e.key === 'Tab' && ghostText) { 
+          e.preventDefault(); 
+          setContent(prev => prev + ghostText); 
+          setGhostText(""); 
+      }
+      if (e.key === 'Escape') { 
+          setGhostText(""); 
+          setShowLens(false); 
+          setIsFocusMode(false); 
+      }
+  };
+
+  // 3. NATIVE FILE SAVE
+  const handleSave = async () => {
+    if (!content.trim()) return;
+
+    let filenameToSave = activeFilename;
+
+    // If no active file, generate a new filename based on title or content
+    if (!filenameToSave) {
+        let baseFilename = "zenith-draft";
+        if (title && title.trim().length > 0) {
+            baseFilename = title.trim();
+        } else {
+            baseFilename = content.split('\n')[0].slice(0, 20);
+        }
+        const safeFilename = baseFilename
+            .replace(/[^a-z0-9\-_ ]/gi, '')
+            .trim()
+            .replace(/\s+/g, '_') || "zenith-draft";
+        
+        filenameToSave = `${safeFilename}.md`;
+    }
+
+    try {
+        await window.lumina.saveGeneratedFile(content, filenameToSave);
+        setActiveFilename(filenameToSave);
+        // Dispatch event to tell Sidebar to refresh the file list
+        window.dispatchEvent(new CustomEvent('zenith-file-saved'));
+    } catch (e) {
+        console.error("Save failed", e);
+    }
+  };
+
   // --- SAFEGUARDS ---
   if (!settings || !theme) return null;
 
-  // --- FORGE MODE LOCK ---
   if (settings.developerMode) {
     return (
       <div className="flex flex-col items-center justify-center h-full w-full relative overflow-hidden bg-[#030304]">
@@ -79,116 +264,6 @@ export const Zenith = () => {
       </div>
     );
   }
-
-  // --- ACTIONS ---
-
-  // 1. REAL GHOST WRITER (Connected to Backend)
-  const triggerGhostWriter = async () => {
-    if (isAiThinking || !content) return;
-    setIsAiThinking(true);
-    
-    // 1. Get Context (Last 200 chars)
-    const context = content.slice(-200);
-
-    try {
-        // 2. CALL REAL BACKEND
-        // Note: ensure window.lumina.generateCompletion exists (updated preload.cjs)
-        const completion = await window.lumina.generateCompletion(
-            `Complete this sentence naturally, do not repeat the context: "${context}"`, 
-            settings.defaultModel, 
-            settings
-        );
-
-        if (completion) {
-            // Clean up AI chatter if it returns the prompt
-            let cleanText = completion.replace(context, "").trim();
-            // Add a leading space if needed
-            if (!cleanText.startsWith(" ") && !cleanText.startsWith(".") && !cleanText.startsWith(",")) {
-                cleanText = " " + cleanText;
-            }
-            setGhostText(cleanText);
-        } else {
-            // Fallback if local AI is offline
-            setGhostText(" (AI Offline: Ensure Ollama is running)");
-        }
-    } catch (error) {
-        console.error("AI Error", error);
-        setGhostText(" (Connection Error)");
-    } finally {
-        setIsAiThinking(false);
-        if (textareaRef.current) textareaRef.current.focus();
-    }
-  };
-
-  // 2. Lumina Lens (Context Menu Actions)
-  const handleLensAction = async (action) => {
-      setIsAiThinking(true);
-      setShowLens(false);
-      
-      try {
-          // Use the JSON generator for specific tasks (It's more reliable for instructions)
-          // We ask for a "text" field in JSON to ensure clean output
-          const prompt = `
-            Task: ${action}
-            Input Text: "${selection.text}"
-            
-            Return JSON format: { "text": "The modified text here" }
-          `;
-          
-          const result = await window.lumina.generateJson(prompt, settings.defaultModel, settings);
-          
-          if (result && result.text) {
-             const before = content.substring(0, selection.start);
-             const after = content.substring(selection.end);
-             setContent(before + result.text + after);
-          }
-      } catch (e) {
-          console.error("Lens Error", e);
-      } finally {
-          setIsAiThinking(false);
-          setSelection({ start: 0, end: 0, text: "" });
-      }
-  };
-
-  const handleSelect = (e) => {
-      const start = e.target.selectionStart;
-      const end = e.target.selectionEnd;
-      if (start !== end) {
-          setSelection({ start, end, text: content.substring(start, end) });
-          setShowLens(true);
-      } else {
-          setShowLens(false);
-      }
-  };
-
-  const handleKeyDown = (e) => {
-      // Cmd+J triggers Ghost Writer
-      if ((e.metaKey || e.ctrlKey) && e.key === 'j') { 
-          e.preventDefault(); 
-          triggerGhostWriter(); 
-      }
-      
-      // Tab accepts Ghost Text
-      if (e.key === 'Tab' && ghostText) { 
-          e.preventDefault(); 
-          setContent(prev => prev + ghostText); 
-          setGhostText(""); 
-      }
-      
-      // Escape clears UI
-      if (e.key === 'Escape') { 
-          setGhostText(""); 
-          setShowLens(false); 
-          setIsFocusMode(false); 
-      }
-  };
-
-  // 3. NATIVE FILE SAVE
-  const handleSave = async () => {
-    if (!content.trim()) return;
-    const firstLine = content.split('\n')[0].slice(0, 20).replace(/[^a-z0-9]/gi, '_') || 'zenith-draft';
-    await window.lumina.saveGeneratedFile(content, `${firstLine}.md`);
-  };
 
   return (
     <div className={`flex-1 h-full flex flex-col transition-colors duration-700 relative z-10 ${isFocusMode ? 'bg-[#000000]' : 'bg-transparent'}`}>

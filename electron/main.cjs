@@ -144,8 +144,6 @@ function setupUpdater() {
             text: 'Dev Mode: Updater Disabled' 
         });
     } else {
-        // IN PRODUCTION: Send the ACTUAL error message to the UI
-        // This lets you see if it's a "Network Error", "404", or "Signature" issue.
         mainWindow?.webContents.send('update-message', { 
             status: 'error', 
             text: `Update Error: ${err.message || "Unknown error"}` 
@@ -445,29 +443,61 @@ app.whenReady().then(() => {
     }
   });
 
-  // --- OLLAMA TEXT COMPLETION (Zenith Ghost Writer) ---
+  // --- OLLAMA TEXT COMPLETION (Zenith Ghost Writer - FIXED) ---
   ipcMain.handle('ollama:completion', async (e, { prompt, model, settings }) => { 
     const config = settings || DEFAULT_SETTINGS; 
     let baseUrl = (config.ollamaUrl || "http://127.0.0.1:11434").replace(/\/$/, '').replace('localhost', '127.0.0.1');
     let selectedModel = model || config.defaultModel;
     
-    if(!selectedModel) { try { const r = await fetch(`${baseUrl}/api/tags`); const d = await r.json(); if(d.models?.length) selectedModel = d.models[0].name; } catch(e){ return ""; } }
+    // [FIX] 1. Check what models are actually available
+    let availableModels = [];
+    try {
+        const tagReq = await fetch(`${baseUrl}/api/tags`);
+        if (tagReq.ok) {
+            const tagData = await tagReq.json();
+            availableModels = tagData.models?.map(m => m.name) || [];
+        }
+    } catch (connErr) {
+        console.error("Ollama Connection Failed:", connErr);
+        return "Error: Could not connect to Ollama.";
+    }
+
+    // [FIX] 2. Smart Selection Logic
+    // If we have a selected model, but it's not installed, try to find a close match or fallback
+    if (availableModels.length > 0) {
+        const exactMatch = availableModels.find(m => m === selectedModel);
+        if (!exactMatch) {
+            // If the specific model (e.g. "llama3:latest") isn't found, pick the first available non-embed model
+            const fallback = availableModels.find(m => !m.includes('embed')) || availableModels[0];
+            console.log(`Requested model '${selectedModel}' not found. Falling back to '${fallback}'`);
+            selectedModel = fallback;
+        }
+    } else {
+        return "Error: No models found in Ollama. Please run 'ollama pull llama3'.";
+    }
 
     try {
         const r = await fetch(`${baseUrl}/api/generate`, { 
-            method:'POST', 
-            body:JSON.stringify({ 
+            method: 'POST', 
+            body: JSON.stringify({ 
                 model: selectedModel, 
                 prompt: prompt, 
                 stream: false,
-                options: { stop: ['.', '\n', '  '], temperature: 0.3 } 
+                options: { stop: ['<|endoftext|>', '<|user|>'], temperature: 0.3 } 
             }) 
         });
+
+        // [FIX] 3. Detailed Error Handling
+        if (!r.ok) {
+            const errText = await r.text();
+            throw new Error(`Ollama API Error (${r.status}): ${errText || r.statusText}`);
+        }
+
         const j = await r.json();
         return j.response;
     } catch(err) {
-        console.error("Completion Error", err);
-        return "";
+        console.error("Completion Error:", err);
+        return `Error: ${err.message}`;
     }
   });
 

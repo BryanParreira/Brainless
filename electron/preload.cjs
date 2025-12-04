@@ -14,7 +14,7 @@ contextBridge.exposeInMainWorld('lumina', {
   // JSON Agent (Dossier / Flashcards)
   generateJson: (prompt, model, settings, projectId) => ipcRenderer.invoke('ollama:generate-json', { prompt, model, settings, projectId }),
   
-  // [NEW] Text Completion (Zenith Ghost Writer)
+  // Text Completion (Zenith Ghost Writer)
   generateCompletion: (prompt, model, settings) => ipcRenderer.invoke('ollama:completion', { prompt, model, settings }),
 
   // --- AI Listeners ---
@@ -48,10 +48,12 @@ contextBridge.exposeInMainWorld('lumina', {
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   resetSystem: () => ipcRenderer.invoke('system:factory-reset'),
   
-  // Native File Save (Zenith)
+  // [NEW] File System Operations for Zenith/Sidebar
+  listFiles: (directory) => ipcRenderer.invoke('system:list-files', directory),
+  readFile: (filename) => ipcRenderer.invoke('system:read-file', filename),
   saveGeneratedFile: (content, filename) => ipcRenderer.invoke('system:save-file', { content, filename }),
   
-  // [NEW] Command Bar Listener (Alt+Space)
+  // Command Bar Listener (Alt+Space)
   onToggleCommandBar: (cb) => {
       const sub = () => cb();
       ipcRenderer.on('cmd-bar:toggle', sub);
