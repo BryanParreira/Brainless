@@ -48,17 +48,15 @@ contextBridge.exposeInMainWorld('lumina', {
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   resetSystem: () => ipcRenderer.invoke('system:factory-reset'),
   
-  // --- NEW: SPECIFIC DATA DELETION HANDLERS ---
+  // --- SPECIFIC DATA DELETION HANDLERS ---
   deleteChats: () => ipcRenderer.invoke('system:delete-chats'),
   deleteCache: () => ipcRenderer.invoke('system:delete-cache'),
   deleteCalendar: () => ipcRenderer.invoke('system:delete-calendar'),
   
-  // File System Operations for Zenith/Sidebar
+  // File System Operations
   listFiles: (directory) => ipcRenderer.invoke('system:list-files', directory),
   readFile: (filename) => ipcRenderer.invoke('system:read-file', filename),
-  saveGeneratedFile: (content, filename) => ipcRenderer.invoke('system:save-file', { content, filename }),
-  
-  // --- NEW: OPEN FILE IN SYSTEM DEFAULT APP ---
+  saveGeneratedFile: (content, filename) => ipcRenderer.invoke('system:save-generated-file', { content, filename }),
   openFile: (filePath) => ipcRenderer.invoke('system:open-file', filePath),
   
   // Command Bar Listener (Alt+Space)
@@ -80,9 +78,8 @@ contextBridge.exposeInMainWorld('lumina', {
   deleteProject: (id) => ipcRenderer.invoke('project:delete', id),
   scaffoldProject: (projectId, structure) => ipcRenderer.invoke('project:scaffold', { projectId, structure }),
   saveProjectDossier: (id, dossier) => ipcRenderer.invoke('project:save-dossier', { id, dossier }),
-  
-  // --- NEW: DELETE FILE FROM PROJECT ---
   deleteFileFromProject: (projectId, filePath) => ipcRenderer.invoke('project:delete-file', { projectId, filePath }),
+  addFileToProject: (projectId, filename) => ipcRenderer.invoke('project:add-file-to-project', { projectId, filename }),
 
   // ==========================================
   // 5. ADVANCED AGENTS (Graph, Research, Git)
@@ -103,4 +100,37 @@ contextBridge.exposeInMainWorld('lumina', {
   
   loadCalendar: () => ipcRenderer.invoke('calendar:load'),
   saveCalendar: (events) => ipcRenderer.invoke('calendar:save', events),
+
+  // ==========================================
+  // 7. GOOGLE CALENDAR INTEGRATION
+  // ==========================================
+  
+  // Check if Google Calendar is available (dependencies installed)
+  checkGCalAvailability: () => ipcRenderer.invoke('gcal:check-availability'),
+  
+  // AUTOMATIC MODE: Connect via browser OAuth (opens localhost server)
+  connectGoogleCalendar: () => ipcRenderer.invoke('gcal:connect'),
+  
+  // MANUAL MODE: Get authorization URL
+  getGoogleAuthUrl: () => ipcRenderer.invoke('gcal:get-auth-url'),
+  
+  // MANUAL MODE: Submit authorization code
+  authenticateWithCode: (code) => ipcRenderer.invoke('gcal:authenticate-with-code', code),
+  
+  // Check connection status
+  checkGoogleCalendarStatus: () => ipcRenderer.invoke('gcal:status'),
+  
+  // Sync local events TO Google Calendar
+  syncToGoogle: (events) => ipcRenderer.invoke('gcal:sync-to-google', events),
+  
+  // Import events FROM Google Calendar
+  importFromGoogle: (startDate, endDate) => ipcRenderer.invoke('gcal:import-from-google', { startDate, endDate }),
+  
+  // Disconnect from Google Calendar
+  disconnectGoogleCalendar: () => ipcRenderer.invoke('gcal:disconnect'),
+  
+  // CREDENTIAL MANAGEMENT
+  saveGoogleCredentials: (clientId, clientSecret) => ipcRenderer.invoke('gcal:save-credentials', { clientId, clientSecret }),
+  getGoogleCredentials: () => ipcRenderer.invoke('gcal:get-credentials'),
+  clearGoogleCredentials: () => ipcRenderer.invoke('gcal:clear-credentials'),
 });

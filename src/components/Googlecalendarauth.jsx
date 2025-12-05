@@ -30,6 +30,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
+// [Keep all existing helper functions: parseNaturalLanguage, createLocalDate, formatFriendlyDate, formatDate, getEventColor, generateICS, parseICS, useVoiceRecognition, speakText]
+
 // --- ROBUST NATURAL LANGUAGE PARSER ---
 const parseNaturalLanguage = (input) => {
     const now = new Date();
@@ -272,6 +274,8 @@ const DraggableEvent = ({ event, onClick, theme }) => {
         </div>
     );
 };
+
+// [Keep CalendarDay, WeekView, and EventModal components exactly as they are]
 
 const CalendarDay = React.memo(({ day, dateStr, dayEvents, isToday, theme, onDayClick, onEventClick, onDropEvent }) => {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -585,6 +589,7 @@ const EventModal = React.memo(({ isOpen, isPlanning, isEditing, onClose, onAdd, 
     );
 });
 
+// --- GOOGLE CALENDAR WIDGET (EMBEDDED IN CHRONOS) ---
 const GoogleCalendarWidget = ({ onSync, syncing, connected, onConnect }) => {
   return (
     <div className="flex items-center gap-2">
@@ -619,7 +624,7 @@ const GoogleCalendarWidget = ({ onSync, syncing, connected, onConnect }) => {
 
 // --- MAIN CHRONOS COMPONENT ---
 export const Chronos = React.memo(() => {
-  const { calendarEvents, addEvent, updateEvent, deleteEvent, generateSchedule, theme, settings, isLoading } = useLumina();
+  const { calendarEvents, setCalendarEvents, addEvent, updateEvent, deleteEvent, generateSchedule, theme, settings, isLoading } = useLumina();
   
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState('month');
@@ -628,9 +633,6 @@ export const Chronos = React.memo(() => {
   const [editingEvent, setEditingEvent] = useState(null);
   const [naturalInput, setNaturalInput] = useState("");
   const [notification, setNotification] = useState(null);
-  
-  // LOCAL state for events (includes imported Google events)
-  const [localEvents, setLocalEvents] = useState([]);
   
   // Google Calendar State
   const [gcalAvailable, setGcalAvailable] = useState(false);
@@ -653,11 +655,6 @@ export const Chronos = React.memo(() => {
   const [planDate, setPlanDate] = useState("");
   const [planDuration, setPlanDuration] = useState("");
   const [planGoals, setPlanGoals] = useState("");
-
-  // Sync calendarEvents from context to local state
-  useEffect(() => {
-    setLocalEvents(calendarEvents);
-  }, [calendarEvents]);
 
   // Check Google Calendar availability on mount
   useEffect(() => {
@@ -733,16 +730,12 @@ export const Chronos = React.memo(() => {
     }
   };
 
-  // FIXED: Proper sync that imports Google events into OmniLab
   const handleGcalSync = async () => {
     setGcalSyncing(true);
     try {
-      // Step 1: Sync local OmniLab events TO Google
-      const omnilabEvents = localEvents.filter(e => e.source !== 'google');
-      console.log('Syncing to Google:', omnilabEvents.length, 'events');
-      await window.lumina.syncToGoogle(omnilabEvents);
+      const localEvents = calendarEvents.filter(e => e.source !== 'google');
+      await window.lumina.syncToGoogle(localEvents);
 
-      // Step 2: Import events FROM Google
       const today = new Date();
       const nextMonth = new Date(today);
       nextMonth.setMonth(today.getMonth() + 1);
@@ -752,39 +745,26 @@ export const Chronos = React.memo(() => {
         nextMonth.toISOString().split('T')[0]
       );
 
-      console.log('Import result:', importResult);
-
-      if (importResult.success && importResult.events) {
-        // Step 3: Merge Google events with local events
-        const googleEvents = importResult.events;
-        const mergedEvents = [...omnilabEvents];
-        
+      if (importResult.success) {
+        const mergedEvents = [...calendarEvents];
         let imported = 0;
-        for (const gEvent of googleEvents) {
-          // Check if this Google event already exists in local events
-          const exists = mergedEvents.some(e => e.googleId === gEvent.googleId || e.id === gEvent.id);
-          
+        
+        importResult.events.forEach(gEvent => {
+          const exists = mergedEvents.some(e => e.googleId === gEvent.googleId);
           if (!exists) {
             mergedEvents.push(gEvent);
             imported++;
           }
-        }
+        });
         
-        console.log('Merged events:', mergedEvents.length, 'total,', imported, 'imported from Google');
-        
-        // Step 4: Update local state immediately
-        setLocalEvents(mergedEvents);
-        
-        // Step 5: Save to backend storage
+        setCalendarEvents(mergedEvents);
         await window.lumina.saveCalendar(mergedEvents);
         
-        showNotification(`✅ Synced! ${imported} events imported from Google`);
-      } else {
-        showNotification('✅ Synced with Google Calendar');
+        showNotification(`✅ Synced with Google Calendar (${imported} imported)`);
       }
     } catch (err) {
       console.error('Sync error:', err);
-      showNotification('❌ Sync failed: ' + (err.message || 'Unknown error'));
+      showNotification('❌ Sync failed');
     } finally {
       setGcalSyncing(false);
     }
@@ -850,7 +830,7 @@ export const Chronos = React.memo(() => {
   };
 
   const handleDropEvent = (eventId, targetDate) => {
-      const event = localEvents.find(e => e.id === eventId);
+      const event = calendarEvents.find(e => e.id === eventId);
       if (event && updateEvent) {
           updateEvent(eventId, { ...event, date: targetDate });
           showNotification(`"${event.title}" rescheduled to ${formatFriendlyDate(targetDate)}`);
@@ -950,14 +930,13 @@ export const Chronos = React.memo(() => {
     setNewEventTitle(""); setNewEventDate(""); setNewEventTime(""); setPlanTopic(""); setPlanDate(""); setNewEventNotes("");
   };
 
-  // Use localEvents instead of calendarEvents for display
   const eventsByDate = useMemo(() => {
-    return localEvents.reduce((acc, event) => {
+    return calendarEvents.reduce((acc, event) => {
       if (!acc[event.date]) acc[event.date] = [];
       acc[event.date].push(event);
       return acc;
     }, {});
-  }, [localEvents]);
+  }, [calendarEvents]);
 
   const todayStr = formatDate(new Date());
 
@@ -1043,7 +1022,7 @@ export const Chronos = React.memo(() => {
             )}
             
             <button onClick={handleImportICS} className="p-2 bg-[#111] border border-white/10 rounded-lg text-gray-400 hover:text-white" title="Import Calendar (.ics)"><Upload size={14}/></button>
-            <button onClick={() => generateICS(localEvents)} className="p-2 bg-[#111] border border-white/10 rounded-lg text-gray-400 hover:text-white" title="Export ICS"><Download size={14}/></button>
+            <button onClick={() => generateICS(calendarEvents)} className="p-2 bg-[#111] border border-white/10 rounded-lg text-gray-400 hover:text-white" title="Export ICS"><Download size={14}/></button>
             
             <button onClick={() => openNewEvent(formatDate(new Date()))} className="flex items-center gap-2 px-3 py-1.5 bg-white text-black hover:bg-gray-200 rounded-lg text-xs font-bold">
                 <Plus size={12}/> Add
@@ -1090,182 +1069,183 @@ export const Chronos = React.memo(() => {
         </div>
       </div>
 
-      {/* GOOGLE CALENDAR AUTH MODAL */}
-      <AnimatePresence>
-        {showGcalAuth && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-xl z-[60] flex items-center justify-center p-4" onClick={() => setShowGcalAuth(false)}>
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-md bg-[#0A0A0A] rounded-2xl border border-white/10 shadow-2xl overflow-hidden relative"
+      {/* GOOGLE CALENDAR AUTH MODAL - IMPROVED DESIGN */}
+      {/* GOOGLE CALENDAR AUTH MODAL - DESIGN MATCHED */}
+<AnimatePresence>
+  {showGcalAuth && (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-xl z-[60] flex items-center justify-center p-4" onClick={() => setShowGcalAuth(false)}>
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0, y: 20 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.95, opacity: 0, y: 20 }}
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md bg-[#0A0A0A] rounded-2xl border border-white/10 shadow-2xl overflow-hidden relative"
+      >
+        {/* Noise texture overlay */}
+        <div className="absolute inset-0 bg-noise opacity-20 pointer-events-none" />
+        
+        {/* Top accent line */}
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 via-purple-600 to-blue-600 opacity-60" />
+        
+        {/* Header */}
+        <div className="relative p-6 border-b border-white/5 bg-[#050505]/80 backdrop-blur-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
+                <CalendarIcon size={22} className="text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white tracking-tight">Google Calendar</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Sync your schedule</p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setShowGcalAuth(false);
+                setGcalAuthUrl(null);
+                setGcalAuthCode('');
+              }}
+              className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-all text-gray-500 hover:text-white"
             >
-              {/* Noise texture overlay */}
-              <div className="absolute inset-0 bg-noise opacity-20 pointer-events-none" />
-              
-              {/* Top accent line */}
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 via-purple-600 to-blue-600 opacity-60" />
-              
-              {/* Header */}
-              <div className="relative p-6 border-b border-white/5 bg-[#050505]/80 backdrop-blur-sm">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
-                      <CalendarIcon size={22} className="text-white" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-white tracking-tight">Google Calendar</h3>
-                      <p className="text-xs text-gray-500 mt-0.5">Sync your schedule</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setShowGcalAuth(false);
-                      setGcalAuthUrl(null);
-                      setGcalAuthCode('');
-                    }}
-                    className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-all text-gray-500 hover:text-white"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Content */}
-              <div className="relative p-6 space-y-5 bg-[#0A0A0A]">
-                {/* Quick Connect */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-6 h-6 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center">
-                      <span className="text-xs font-bold text-green-400">1</span>
-                    </div>
-                    <p className="text-sm font-semibold text-white">One-Click Connection</p>
-                    <span className="ml-auto px-2 py-0.5 bg-green-500/10 border border-green-500/20 text-green-400 text-[10px] font-bold rounded uppercase">Recommended</span>
-                  </div>
-                  
-                  <button
-                    onClick={() => {
-                      setShowGcalAuth(false);
-                      handleQuickConnect();
-                    }}
-                    className="w-full group relative overflow-hidden bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-xl py-3.5 transition-all duration-200 shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 hover:scale-[1.01] active:scale-[0.99]"
-                  >
-                    <div className="relative flex items-center justify-center gap-3">
-                      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-                      </svg>
-                      <span className="font-bold text-sm">Connect with Google</span>
-                    </div>
-                  </button>
-                  
-                  <div className="flex items-start gap-2 p-3 bg-blue-500/5 border border-blue-500/10 rounded-xl">
-                    <AlertCircle size={14} className="text-blue-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-xs text-gray-400 leading-relaxed">
-                      Browser opens → Sign in → Grant permissions → Done!
-                    </p>
-                  </div>
-                </div>
-
-                {/* Divider */}
-                <div className="flex items-center gap-3 my-4">
-                  <div className="flex-1 h-px bg-white/5" />
-                  <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">or</span>
-                  <div className="flex-1 h-px bg-white/5" />
-                </div>
-
-                {/* Manual Setup */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-6 h-6 rounded-full bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
-                      <span className="text-xs font-bold text-purple-400">2</span>
-                    </div>
-                    <p className="text-sm font-semibold text-white">Manual Setup</p>
-                    <span className="ml-auto px-2 py-0.5 bg-white/5 border border-white/10 text-gray-500 text-[10px] font-bold rounded uppercase">Alternative</span>
-                  </div>
-                  
-                  {!gcalAuthUrl ? (
-                    <button
-                      onClick={handleManualAuth}
-                      className="w-full bg-[#111] hover:bg-[#151515] border border-white/10 hover:border-white/20 text-white rounded-xl py-3 transition-all"
-                    >
-                      <div className="flex items-center justify-center gap-2">
-                        <span className="text-xl">🔑</span>
-                        <span className="font-medium text-sm">Get Authorization Code</span>
-                      </div>
-                    </button>
-                  ) : (
-                    <div className="space-y-3">
-                      {/* Step 1 */}
-                      <div className="p-3 bg-purple-500/5 border border-purple-500/10 rounded-xl space-y-2">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-bold text-purple-400 uppercase">Step 1</span>
-                          <CheckCircle2 size={14} className="text-purple-400" />
-                        </div>
-                        <button
-                          onClick={() => window.open(gcalAuthUrl, '_blank')}
-                          className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors flex items-center justify-center gap-2 font-medium text-sm shadow-lg shadow-purple-500/20"
-                        >
-                          <span>🌐</span>
-                          <span>Open Google</span>
-                        </button>
-                      </div>
-
-                      {/* Step 2 */}
-                      <div className="p-3 bg-green-500/5 border border-green-500/10 rounded-xl space-y-2">
-                        <span className="text-xs font-bold text-green-400 uppercase block mb-2">Step 2</span>
-                        <input
-                          type="text"
-                          value={gcalAuthCode}
-                          onChange={(e) => setGcalAuthCode(e.target.value)}
-                          placeholder="Paste code here..."
-                          className="w-full px-3 py-2 bg-black/50 border border-white/10 focus:border-green-500/50 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none transition-colors font-mono"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && gcalAuthCode.trim()) {
-                              handleSubmitCode();
-                            }
-                          }}
-                        />
-                        <button
-                          onClick={handleSubmitCode}
-                          disabled={!gcalAuthCode.trim()}
-                          className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-800 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center justify-center gap-2 font-medium text-sm shadow-lg shadow-green-500/20"
-                        >
-                          <CheckCircle2 size={16} />
-                          <span>Connect</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Footer */}
-              <div className="relative px-6 py-4 bg-[#050505]/80 backdrop-blur-sm border-t border-white/5">
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1.5 text-gray-500">
-                    <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]" />
-                    <span className="font-medium">Secure OAuth 2.0</span>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setShowGcalAuth(false);
-                      setGcalAuthUrl(null);
-                      setGcalAuthCode('');
-                    }}
-                    className="text-gray-500 hover:text-white transition-colors font-medium"
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            </motion.div>
+              <X size={16} />
+            </button>
           </div>
-        )}
-      </AnimatePresence>
+        </div>
+
+        {/* Content */}
+        <div className="relative p-6 space-y-5 bg-[#0A0A0A]">
+          {/* Quick Connect */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-6 h-6 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center">
+                <span className="text-xs font-bold text-green-400">1</span>
+              </div>
+              <p className="text-sm font-semibold text-white">One-Click Connection</p>
+              <span className="ml-auto px-2 py-0.5 bg-green-500/10 border border-green-500/20 text-green-400 text-[10px] font-bold rounded uppercase">Recommended</span>
+            </div>
+            
+            <button
+              onClick={() => {
+                setShowGcalAuth(false);
+                handleQuickConnect();
+              }}
+              className="w-full group relative overflow-hidden bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-xl py-3.5 transition-all duration-200 shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 hover:scale-[1.01] active:scale-[0.99]"
+            >
+              <div className="relative flex items-center justify-center gap-3">
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                </svg>
+                <span className="font-bold text-sm">Connect with Google</span>
+              </div>
+            </button>
+            
+            <div className="flex items-start gap-2 p-3 bg-blue-500/5 border border-blue-500/10 rounded-xl">
+              <AlertCircle size={14} className="text-blue-400 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-gray-400 leading-relaxed">
+                Browser opens → Sign in → Grant permissions → Done!
+              </p>
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="flex items-center gap-3 my-4">
+            <div className="flex-1 h-px bg-white/5" />
+            <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">or</span>
+            <div className="flex-1 h-px bg-white/5" />
+          </div>
+
+          {/* Manual Setup */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-6 h-6 rounded-full bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
+                <span className="text-xs font-bold text-purple-400">2</span>
+              </div>
+              <p className="text-sm font-semibold text-white">Manual Setup</p>
+              <span className="ml-auto px-2 py-0.5 bg-white/5 border border-white/10 text-gray-500 text-[10px] font-bold rounded uppercase">Alternative</span>
+            </div>
+            
+            {!gcalAuthUrl ? (
+              <button
+                onClick={handleManualAuth}
+                className="w-full bg-[#111] hover:bg-[#151515] border border-white/10 hover:border-white/20 text-white rounded-xl py-3 transition-all"
+              >
+                <div className="flex items-center justify-center gap-2">
+                  <span className="text-xl">🔑</span>
+                  <span className="font-medium text-sm">Get Authorization Code</span>
+                </div>
+              </button>
+            ) : (
+              <div className="space-y-3">
+                {/* Step 1 */}
+                <div className="p-3 bg-purple-500/5 border border-purple-500/10 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-purple-400 uppercase">Step 1</span>
+                    <CheckCircle2 size={14} className="text-purple-400" />
+                  </div>
+                  <button
+                    onClick={() => window.open(gcalAuthUrl, '_blank')}
+                    className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors flex items-center justify-center gap-2 font-medium text-sm shadow-lg shadow-purple-500/20"
+                  >
+                    <span>🌐</span>
+                    <span>Open Google</span>
+                  </button>
+                </div>
+
+                {/* Step 2 */}
+                <div className="p-3 bg-green-500/5 border border-green-500/10 rounded-xl space-y-2">
+                  <span className="text-xs font-bold text-green-400 uppercase block mb-2">Step 2</span>
+                  <input
+                    type="text"
+                    value={gcalAuthCode}
+                    onChange={(e) => setGcalAuthCode(e.target.value)}
+                    placeholder="Paste code here..."
+                    className="w-full px-3 py-2 bg-black/50 border border-white/10 focus:border-green-500/50 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none transition-colors font-mono"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && gcalAuthCode.trim()) {
+                        handleSubmitCode();
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={handleSubmitCode}
+                    disabled={!gcalAuthCode.trim()}
+                    className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-800 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center justify-center gap-2 font-medium text-sm shadow-lg shadow-green-500/20"
+                  >
+                    <CheckCircle2 size={16} />
+                    <span>Connect</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="relative px-6 py-4 bg-[#050505]/80 backdrop-blur-sm border-t border-white/5">
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center gap-1.5 text-gray-500">
+              <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]" />
+              <span className="font-medium">Secure OAuth 2.0</span>
+            </div>
+            <button
+              onClick={() => {
+                setShowGcalAuth(false);
+                setGcalAuthUrl(null);
+                setGcalAuthCode('');
+              }}
+              className="text-gray-500 hover:text-white transition-colors font-medium"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  )}
+</AnimatePresence>
 
       <EventModal
         isOpen={isModalOpen}

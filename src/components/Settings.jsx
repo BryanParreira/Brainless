@@ -4,7 +4,7 @@ import {
   X, Save, Server, Cpu, Brain, Sliders, Monitor, Type, Database, 
   Terminal, BookOpen, Shield, Zap, Check, ChevronDown, RefreshCw, 
   Sparkles, Info, Github, Bug, FileText, ExternalLink, Download, CheckCircle, Loader2,
-  Trash2, MessageSquare, HardDrive, AlertTriangle, Calendar
+  Trash2, MessageSquare, HardDrive, AlertTriangle, Calendar, Key, Eye, EyeOff, Link as LinkIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -87,7 +87,7 @@ const InputGroup = React.memo(({ label, desc, children }) => (
 ));
 InputGroup.displayName = 'InputGroup';
 
-// --- NEW: CONFIRMATION MODAL FOR DELETIONS ---
+// --- CONFIRMATION MODAL FOR DELETIONS ---
 const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, keyword, theme }) => {
   const [inputValue, setInputValue] = useState('');
   const [error, setError] = useState('');
@@ -176,7 +176,7 @@ export const Settings = ({ isOpen, onClose }) => {
   // --- CONFIRMATION MODAL STATE ---
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, type: '', keyword: '', message: '' });
   
-  // [NEW] OLLAMA CONNECTION STATE
+  // OLLAMA CONNECTION STATE
   const [connectionStatus, setConnectionStatus] = useState('idle'); 
 
   // UPDATE STATE
@@ -184,11 +184,20 @@ export const Settings = ({ isOpen, onClose }) => {
   const [updateMessage, setUpdateMessage] = useState('');
   const [downloadProgress, setDownloadProgress] = useState(0);
 
+  // GOOGLE CALENDAR STATE
+  const [gcalClientId, setGcalClientId] = useState('');
+  const [gcalClientSecret, setGcalClientSecret] = useState('');
+  const [gcalShowSecret, setGcalShowSecret] = useState(false);
+  const [gcalSaving, setGcalSaving] = useState(false);
+  const [gcalHasCredentials, setGcalHasCredentials] = useState(false);
+  const [gcalStatus, setGcalStatus] = useState('');
+  const [gcalIsConnected, setGcalIsConnected] = useState(false);
+
   const localTheme = useMemo(() => getTheme(form.developerMode), [form.developerMode]);
 
   useEffect(() => { setForm(settings); setHasChanges(false); }, [settings]);
 
-  // Setup Update Listener (must run before component return)
+  // Setup Update Listener
   useEffect(() => {
     if (window.lumina && window.lumina.onUpdateMessage) {
       const cleanup = window.lumina.onUpdateMessage((data) => {
@@ -200,7 +209,7 @@ export const Settings = ({ isOpen, onClose }) => {
     }
   }, []);
 
-  // [NEW] Function to check Ollama health
+  // Check Ollama health
   const checkOllamaHealth = useCallback(async (url) => {
     setConnectionStatus('checking');
     try {
@@ -211,10 +220,28 @@ export const Settings = ({ isOpen, onClose }) => {
     }
   }, []);
 
-  // Auto-check connection status when endpoint changes or component loads
   useEffect(() => {
       checkOllamaHealth(form.ollamaUrl);
   }, [form.ollamaUrl, checkOllamaHealth]);
+
+  // Load Google Calendar credentials status
+  useEffect(() => {
+    const loadGcalStatus = async () => {
+      try {
+        const creds = await window.lumina.getGoogleCredentials();
+        setGcalHasCredentials(creds.hasCredentials);
+        
+        const status = await window.lumina.checkGoogleCalendarStatus();
+        setGcalIsConnected(status.connected);
+      } catch (err) {
+        console.error('Failed to load Google Calendar status:', err);
+      }
+    };
+    
+    if (isOpen && activeTab === 'calendar') {
+      loadGcalStatus();
+    }
+  }, [isOpen, activeTab]);
 
   const handleFormChange = useCallback((updates) => {
     setForm(prev => ({ ...prev, ...updates }));
@@ -242,7 +269,49 @@ export const Settings = ({ isOpen, onClose }) => {
     setTimeout(() => setIsRefreshing(false), 800);
   }, [refreshModels]);
 
-  // --- NEW: SPECIFIC RESET ACTIONS WITH CONFIRMATION ---
+  // Google Calendar credential management
+  const handleSaveGcalCredentials = async () => {
+    if (!gcalClientId.trim() || !gcalClientSecret.trim()) {
+      setGcalStatus('Please enter both Client ID and Client Secret');
+      return;
+    }
+
+    setGcalSaving(true);
+    setGcalStatus('');
+    
+    try {
+      const result = await window.lumina.saveGoogleCredentials(gcalClientId.trim(), gcalClientSecret.trim());
+      
+      if (result.success) {
+        setGcalStatus('✅ Credentials saved! Go to Chronos to connect.');
+        setGcalHasCredentials(true);
+        setGcalClientId('');
+        setGcalClientSecret('');
+        setTimeout(() => setGcalStatus(''), 3000);
+      } else {
+        setGcalStatus('❌ Failed: ' + result.error);
+      }
+    } catch (err) {
+      setGcalStatus('❌ Error saving credentials');
+    } finally {
+      setGcalSaving(false);
+    }
+  };
+
+  const handleClearGcalCredentials = async () => {
+    if (confirm('This will remove your Google Calendar credentials and disconnect. Continue?')) {
+      try {
+        await window.lumina.clearGoogleCredentials();
+        setGcalHasCredentials(false);
+        setGcalIsConnected(false);
+        setGcalStatus('Credentials cleared');
+        setTimeout(() => setGcalStatus(''), 3000);
+      } catch (err) {
+        setGcalStatus('❌ Error clearing credentials');
+      }
+    }
+  };
+
   const handleReset = useCallback(async (type) => {
     let keyword = '';
     let message = '';
@@ -294,7 +363,6 @@ export const Settings = ({ isOpen, onClose }) => {
     }
   }, [confirmModal.type, factoryReset, onClose]);
 
-  // --- UPDATE LOGIC (UI FORCE UPDATE) ---
   const checkForUpdates = () => {
     if (window.lumina && window.lumina.checkForUpdates) {
       setUpdateStatus('checking');
@@ -308,7 +376,6 @@ export const Settings = ({ isOpen, onClose }) => {
 
   const startDownload = () => {
      if (window.lumina && window.lumina.downloadUpdate) {
-        // FORCE UI UPDATE to "Downloading" immediately
         setUpdateStatus('downloading');
         setUpdateMessage('Starting download...');
         setDownloadProgress(0);
@@ -318,7 +385,7 @@ export const Settings = ({ isOpen, onClose }) => {
 
   const installUpdate = () => {
     if (window.lumina && window.lumina.quitAndInstall) {
-      window.lumina.quitAndInstall(); // Triggers IPC call to restart app
+      window.lumina.quitAndInstall();
     }
   };
 
@@ -359,6 +426,7 @@ export const Settings = ({ isOpen, onClose }) => {
           <div className="w-64 border-r border-white/5 bg-[#020202]/50 backdrop-blur-sm p-4 flex flex-col gap-2">
             <NavButton active={activeTab === 'capabilities'} onClick={() => setActiveTab('capabilities')} icon={Terminal} label="Capabilities" desc="Modes & Personas" theme={localTheme} />
             <NavButton active={activeTab === 'neural'} onClick={() => setActiveTab('neural')} icon={Brain} label="Neural Engine" desc="LLM & Connection" theme={localTheme} />
+            <NavButton active={activeTab === 'calendar'} onClick={() => setActiveTab('calendar')} icon={Calendar} label="Google Calendar" desc="Sync Configuration" theme={localTheme} />
             <NavButton active={activeTab === 'interface'} onClick={() => setActiveTab('interface')} icon={Monitor} label="Interface" desc="Visuals & Layout" theme={localTheme} />
             <NavButton active={activeTab === 'data'} onClick={() => setActiveTab('data')} icon={Database} label="Data Management" desc="Storage & Reset" theme={localTheme} />
             <div className="flex-1"></div>
@@ -388,7 +456,6 @@ export const Settings = ({ isOpen, onClose }) => {
                       <InputGroup label="API Endpoint" desc="Address of your local or remote Ollama instance.">
                         <div className="flex gap-2">
                           <div className="relative flex-1">
-                            {/* Input with Connection Status Dot */}
                             <input 
                               value={form.ollamaUrl} 
                               onChange={(e) => handleFormChange({ ollamaUrl: e.target.value })} 
@@ -416,7 +483,6 @@ export const Settings = ({ isOpen, onClose }) => {
                           </button>
                         </div>
                         {connectionStatus === 'error' && <p className="text-[10px] text-red-500 mt-2.5 ml-1 leading-relaxed flex items-center gap-1"><AlertTriangle size={10}/> Could not connect. Ensure Ollama is running and the URL is correct.</p>}
-
                       </InputGroup>
                     </Section>
 
@@ -437,6 +503,187 @@ export const Settings = ({ isOpen, onClose }) => {
                       <InputGroup label={`Temperature: ${form.temperature.toFixed(1)}`} desc="Creativity vs Precision balance.">
                           <input type="range" min="0" max="1" step="0.1" value={form.temperature} onChange={(e) => handleFormChange({ temperature: parseFloat(e.target.value) })} className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer slider-thumb" />
                       </InputGroup>
+                    </Section>
+                  </div>
+                )}
+
+                {activeTab === 'calendar' && (
+                  <div className="space-y-8">
+                    {/* Header */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-bold text-white mb-2">Google Calendar Integration</h3>
+                        <p className="text-sm text-gray-400">Sync your OmniLab calendar with Google Calendar</p>
+                      </div>
+                      {gcalIsConnected && (
+                        <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500/10 border border-green-500/30 rounded-lg">
+                          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                          <span className="text-xs font-bold text-green-400">Connected</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Setup Instructions */}
+                    {!gcalHasCredentials && (
+                      <Section title="Setup Required" icon={Key} theme={localTheme}>
+                        <div className="p-6 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+                          <div className="flex items-start gap-4 mb-4">
+                            <div className="w-12 h-12 rounded-xl bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+                              <Sparkles size={24} className="text-blue-400" />
+                            </div>
+                            <div className="flex-1">
+                              <h4 className="text-base font-bold text-white mb-2">Quick 3-Minute Setup</h4>
+                              <p className="text-sm text-blue-200/80 leading-relaxed">
+                                To sync with Google Calendar, you need OAuth credentials from Google Cloud Console. Don't worry - we'll guide you!
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-3 text-xs text-blue-200/70">
+                            <div className="flex items-start gap-3">
+                              <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <span className="text-xs font-bold text-blue-400">1</span>
+                              </div>
+                              <div>
+                                <p className="font-medium text-white mb-0.5">Create Google Cloud Project</p>
+                                <p className="text-blue-300/70">Visit console.cloud.google.com → New Project → Name it "OmniLab"</p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-start gap-3">
+                              <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <span className="text-xs font-bold text-blue-400">2</span>
+                              </div>
+                              <div>
+                                <p className="font-medium text-white mb-0.5">Enable Calendar API</p>
+                                <p className="text-blue-300/70">APIs & Services → Library → Search "Calendar API" → Enable</p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-start gap-3">
+                              <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <span className="text-xs font-bold text-blue-400">3</span>
+                              </div>
+                              <div>
+                                <p className="font-medium text-white mb-0.5">Create OAuth Credentials</p>
+                                <p className="text-blue-300/70">Credentials → Create → OAuth Client ID → Desktop App</p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-start gap-3">
+                              <div className="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <span className="text-xs font-bold text-green-400">4</span>
+                              </div>
+                              <div>
+                                <p className="font-medium text-white mb-0.5">Copy & Paste Below</p>
+                                <p className="text-blue-300/70">Copy your Client ID and Client Secret</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => openLink('https://console.cloud.google.com/apis/credentials')}
+                            className="w-full mt-4 px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                          >
+                            <ExternalLink size={16} />
+                            <span>Open Google Cloud Console</span>
+                          </button>
+                        </div>
+                      </Section>
+                    )}
+
+                    {/* Credentials Input */}
+                    <Section title="OAuth Credentials" icon={Shield} theme={localTheme}>
+                      <div className="p-6 bg-[#0F0F0F] border border-white/10 rounded-xl space-y-4">
+                        {gcalHasCredentials && (
+                          <div className="flex items-center justify-between p-3 bg-green-500/10 border border-green-500/30 rounded-lg mb-4">
+                            <div className="flex items-center gap-2">
+                              <CheckCircle size={16} className="text-green-400" />
+                              <span className="text-sm font-medium text-green-400">Credentials Configured</span>
+                            </div>
+                            <button
+                              onClick={handleClearGcalCredentials}
+                              className="px-3 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5"
+                            >
+                              <Trash2 size={12} />
+                              <span>Clear</span>
+                            </button>
+                          </div>
+                        )}
+
+                        <InputGroup label="Client ID">
+                          <input
+                            type="text"
+                            value={gcalClientId}
+                            onChange={(e) => setGcalClientId(e.target.value)}
+                            placeholder="123456789-abc123.apps.googleusercontent.com"
+                            className="w-full px-4 py-3 bg-black/50 border border-white/10 focus:border-blue-500/50 rounded-lg text-white text-sm placeholder-white/30 focus:outline-none transition-colors"
+                            disabled={gcalHasCredentials}
+                          />
+                        </InputGroup>
+
+                        <InputGroup label="Client Secret">
+                          <div className="relative">
+                            <input
+                              type={gcalShowSecret ? 'text' : 'password'}
+                              value={gcalClientSecret}
+                              onChange={(e) => setGcalClientSecret(e.target.value)}
+                              placeholder="GOCSPX-abc123def456"
+                              className="w-full px-4 py-3 pr-12 bg-black/50 border border-white/10 focus:border-blue-500/50 rounded-lg text-white text-sm placeholder-white/30 focus:outline-none transition-colors"
+                              disabled={gcalHasCredentials}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setGcalShowSecret(!gcalShowSecret)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/80 transition-colors"
+                              disabled={gcalHasCredentials}
+                            >
+                              {gcalShowSecret ? <EyeOff size={16} /> : <Eye size={16} />}
+                            </button>
+                          </div>
+                        </InputGroup>
+
+                        {gcalStatus && (
+                          <div className={`p-3 rounded-lg text-sm ${gcalStatus.startsWith('✅') ? 'bg-green-500/10 text-green-400 border border-green-500/30' : 'bg-red-500/10 text-red-400 border border-red-500/30'}`}>
+                            {gcalStatus}
+                          </div>
+                        )}
+
+                        {!gcalHasCredentials && (
+                          <button
+                            onClick={handleSaveGcalCredentials}
+                            disabled={gcalSaving || !gcalClientId.trim() || !gcalClientSecret.trim()}
+                            className="w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 disabled:from-gray-600 disabled:to-gray-600 text-white rounded-lg font-medium transition-all disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                          >
+                            {gcalSaving ? (
+                              <>
+                                <Loader2 size={16} className="animate-spin" />
+                                <span>Saving...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Shield size={16} />
+                                <span>Save Credentials</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+
+                        <div className="flex items-start gap-2 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                          <Shield size={14} className="text-yellow-400 mt-0.5 flex-shrink-0" />
+                          <p className="text-xs text-yellow-300/90 leading-relaxed">
+                            Your credentials are stored encrypted locally on your device and never leave your computer.
+                          </p>
+                        </div>
+
+                        {gcalHasCredentials && (
+                          <div className="pt-4 border-t border-white/10">
+                            <p className="text-sm text-gray-400 mb-2">
+                              ✅ Ready to connect! Go to <strong className="text-white">Chronos</strong> and click the <strong className="text-blue-400">Google Calendar</strong> button in the header.
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     </Section>
                   </div>
                 )}
@@ -496,7 +743,6 @@ export const Settings = ({ isOpen, onClose }) => {
                     <Section title="Software Update" icon={RefreshCw} theme={localTheme}>
                        <div className="p-6 rounded-2xl bg-[#0A0A0A] border border-white/10 relative overflow-hidden">
                           
-                          {/* Progress Bar Background */}
                           {updateStatus === 'downloading' && (
                             <div className={`absolute bottom-0 left-0 h-1 bg-gradient-to-r ${localTheme.gradient} transition-all duration-300`} style={{ width: `${downloadProgress}%` }}></div>
                           )}
@@ -516,7 +762,6 @@ export const Settings = ({ isOpen, onClose }) => {
                           </div>
 
                           <div className="flex gap-3">
-                             {/* Check Button */}
                              {updateStatus !== 'downloading' && updateStatus !== 'downloaded' && (
                                <button 
                                  onClick={checkForUpdates}
@@ -528,7 +773,6 @@ export const Settings = ({ isOpen, onClose }) => {
                                </button>
                              )}
 
-                             {/* Download Button */}
                              {updateStatus === 'available' && (
                                <button 
                                  onClick={startDownload}
@@ -538,14 +782,12 @@ export const Settings = ({ isOpen, onClose }) => {
                                </button>
                              )}
 
-                             {/* Downloading State */}
                              {updateStatus === 'downloading' && (
                                <button disabled className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-gray-400 bg-white/5 border border-white/5 cursor-not-allowed">
                                  <Loader2 size={14} className="animate-spin text-blue-400" /> Downloading...
                                </button>
                              )}
 
-                             {/* Restart Button */}
                              {updateStatus === 'downloaded' && (
                                <button 
                                  onClick={installUpdate}
@@ -600,7 +842,6 @@ export const Settings = ({ isOpen, onClose }) => {
       </motion.div>
     </div>
 
-    {/* Confirmation Modal */}
     <ConfirmationModal
       isOpen={confirmModal.isOpen}
       onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
