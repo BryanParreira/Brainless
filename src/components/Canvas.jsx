@@ -1,8 +1,11 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useLumina } from '../context/LuminaContext';
 import { 
-  FileCode, StickyNote, Database, Zap, Trash2,
-  Maximize, Minimize, Grid, Cpu, Sparkles, Loader2, MoreHorizontal
+  FileCode, StickyNote, Database, Zap, Trash2, Copy,
+  Maximize, Minimize, Grid, Cpu, Sparkles, Loader2, MoreHorizontal,
+  Plus, Share2, GitBranch, Code2, Lightbulb, Target, Layers,
+  Move, Lock, Unlock, Eye, EyeOff, ChevronDown, Command, Map,
+  Bookmark, FolderOpen, CheckSquare, MessageSquare, Link2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -21,18 +24,14 @@ const findSmartPosition = (parentX, parentY, index, total, existingNodes) => {
     let radius = 400;
     let angle = (index / total) * 2 * Math.PI;
     
-    // Initial calculation
     let x = parentX + radius * Math.cos(angle);
     let y = parentY + radius * Math.sin(angle);
     
-    // Collision Check & Push
     let attempts = 0;
     while (attempts < 8) {
-        // Check if any node is too close (within 250px)
         const collision = existingNodes.some(n => Math.abs(n.x - x) < 250 && Math.abs(n.y - y) < 250);
         if (!collision) break;
         
-        // If collision, push further out and rotate slightly
         radius += 120; 
         x = parentX + radius * Math.cos(angle + (attempts * 0.5)); 
         y = parentY + radius * Math.sin(angle + (attempts * 0.5));
@@ -42,7 +41,134 @@ const findSmartPosition = (parentX, parentY, index, total, existingNodes) => {
     return { x: snapToGrid(x), y: snapToGrid(y) };
 };
 
-// --- ISOLATED NODE COMPONENT (OPTIMIZED WITH SPARK MENU) ---
+// --- NODE TEMPLATES ---
+const NODE_TEMPLATES = {
+  'Quick Note': { type: 'note', title: 'Quick Note', content: 'Ideas and thoughts...' },
+  'API Endpoint': { type: 'file', title: 'API Route', content: '// GET /api/endpoint\n// Returns: {}' },
+  'Database Schema': { type: 'db', title: 'Schema', content: 'table: users\n- id: uuid\n- name: string' },
+  'Component': { type: 'file', title: 'Component.jsx', content: 'export const Component = () => {\n  return <div></div>\n}' },
+  'Task': { type: 'note', title: 'Task', content: '☐ TODO item\n☐ Another task' },
+  'Documentation': { type: 'note', title: 'Docs', content: '# Documentation\n\nOverview here...' },
+};
+
+// --- CONTEXT MENU COMPONENT ---
+const ContextMenu = ({ x, y, onClose, items }) => {
+  useEffect(() => {
+    const handleClick = () => onClose();
+    window.addEventListener('click', handleClick);
+    return () => window.removeEventListener('click', handleClick);
+  }, [onClose]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95, y: -10 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      className="fixed z-[100] bg-[#0a0a0a] border border-white/20 rounded-xl shadow-2xl overflow-hidden min-w-[200px]"
+      style={{ left: x, top: y }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="py-1">
+        {items.map((item, i) => (
+          item.divider ? (
+            <div key={i} className="h-px bg-white/5 my-1" />
+          ) : (
+            <button
+              key={i}
+              onClick={() => { item.onClick(); onClose(); }}
+              className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-3 transition-colors ${
+                item.danger 
+                  ? 'hover:bg-red-500/10 hover:text-red-400 text-gray-400' 
+                  : 'hover:bg-white/5 hover:text-white text-gray-300'
+              }`}
+            >
+              {item.icon && <span className="w-4">{item.icon}</span>}
+              <span className="flex-1">{item.label}</span>
+              {item.shortcut && <kbd className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-gray-500">{item.shortcut}</kbd>}
+            </button>
+          )
+        ))}
+      </div>
+    </motion.div>
+  );
+};
+
+// --- MINI MAP COMPONENT ---
+const MiniMap = ({ nodes, pan, zoom, containerSize, onNavigate }) => {
+  const mapSize = 200;
+  const scale = 0.05;
+  
+  const bounds = useMemo(() => {
+    if (nodes.length === 0) return { minX: 0, maxX: 1000, minY: 0, maxY: 1000 };
+    const xs = nodes.map(n => n.x);
+    const ys = nodes.map(n => n.y);
+    return {
+      minX: Math.min(...xs, 0),
+      maxX: Math.max(...xs, 1000) + 280,
+      minY: Math.min(...ys, 0),
+      maxY: Math.max(...ys, 1000) + 200,
+    };
+  }, [nodes]);
+
+  const viewportRect = {
+    x: (-pan.x / zoom) * scale,
+    y: (-pan.y / zoom) * scale,
+    width: (containerSize.width / zoom) * scale,
+    height: (containerSize.height / zoom) * scale,
+  };
+
+  return (
+    <div className="bg-[#0a0a0a]/90 border border-white/10 rounded-lg overflow-hidden backdrop-blur-md">
+      <div className="px-3 py-2 border-b border-white/5 flex items-center gap-2">
+        <Map size={12} className="text-blue-400" />
+        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Mini Map</span>
+      </div>
+      <svg 
+        width={mapSize} 
+        height={mapSize}
+        className="cursor-pointer"
+        onClick={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const x = (e.clientX - rect.left) / scale;
+          const y = (e.clientY - rect.top) / scale;
+          onNavigate(-x * zoom + containerSize.width / 2, -y * zoom + containerSize.height / 2);
+        }}
+      >
+        {/* Grid Background */}
+        <rect width={mapSize} height={mapSize} fill="#0a0a0a" />
+        
+        {/* Nodes */}
+        {nodes.map((node, i) => (
+          <rect
+            key={i}
+            x={node.x * scale}
+            y={node.y * scale}
+            width={14}
+            height={10}
+            fill={node.type === 'file' ? '#60a5fa' : node.type === 'db' ? '#a78bfa' : '#fbbf24'}
+            opacity={0.6}
+            rx={1}
+          />
+        ))}
+        
+        {/* Viewport */}
+        <rect
+          x={viewportRect.x}
+          y={viewportRect.y}
+          width={viewportRect.width}
+          height={viewportRect.height}
+          fill="none"
+          stroke="#60a5fa"
+          strokeWidth={2}
+          strokeDasharray="3,3"
+          opacity={0.8}
+        />
+      </svg>
+    </div>
+  );
+};
+
+// --- ISOLATED NODE COMPONENT (ENHANCED) ---
 const CanvasNode = React.memo(({ 
     node, 
     isSelected, 
@@ -50,80 +176,144 @@ const CanvasNode = React.memo(({
     zoom, 
     onStartDrag, 
     onUpdate, 
-    onDelete, 
+    onDelete,
+    onDuplicate,
     onSpark, 
-    onStartConnection 
+    onStartConnection,
+    onLock
 }) => {
     const [showSparkMenu, setShowSparkMenu] = useState(false);
+    const [isLocked, setIsLocked] = useState(false);
 
     const nodeStyles = {
-        file: { color: 'text-blue-400', border: 'border-blue-500/30', glow: 'shadow-blue-500/10', icon: <FileCode size={14} />, label: 'FILE' },
-        note: { color: 'text-amber-400', border: 'border-amber-500/30', glow: 'shadow-amber-500/10', icon: <StickyNote size={14} />, label: 'NOTE' },
-        db:   { color: 'text-purple-400', border: 'border-purple-500/30', glow: 'shadow-purple-500/10', icon: <Database size={14} />, label: 'DATA' },
+        file: { 
+          color: 'text-blue-400', 
+          border: 'border-blue-500/30', 
+          glow: 'shadow-blue-500/20', 
+          icon: <FileCode size={14} />, 
+          label: 'FILE',
+          gradient: 'from-blue-500/10 to-transparent'
+        },
+        note: { 
+          color: 'text-amber-400', 
+          border: 'border-amber-500/30', 
+          glow: 'shadow-amber-500/20', 
+          icon: <StickyNote size={14} />, 
+          label: 'NOTE',
+          gradient: 'from-amber-500/10 to-transparent'
+        },
+        db: { 
+          color: 'text-purple-400', 
+          border: 'border-purple-500/30', 
+          glow: 'shadow-purple-500/20', 
+          icon: <Database size={14} />, 
+          label: 'DATA',
+          gradient: 'from-purple-500/10 to-transparent'
+        },
     };
 
     const style = nodeStyles[node.type] || nodeStyles.file;
     const detailLevel = zoom > 0.6 ? 'high' : zoom > 0.35 ? 'medium' : 'low';
-    const width = detailLevel === 'low' ? 'w-[100px]' : 'w-[280px]';
+    const width = detailLevel === 'low' ? 'w-[100px]' : 'w-[320px]';
     const height = detailLevel === 'low' ? 'h-[100px]' : 'auto';
 
     return (
         <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className={`absolute flex flex-col ${width} ${height} rounded-xl overflow-visible backdrop-blur-xl bg-[#0a0a0a]/90 border ${isSelected ? 'border-blue-500' : style.border} transition-shadow hover:shadow-2xl ${style.glow} group z-10`}
+            initial={{ scale: 0.8, opacity: 0, y: 20 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.8, opacity: 0, y: -20 }}
+            className={`absolute flex flex-col ${width} ${height} rounded-xl overflow-visible backdrop-blur-xl bg-[#0a0a0a]/95 border-2 ${
+              isSelected ? 'border-blue-500 shadow-2xl shadow-blue-500/30' : style.border
+            } transition-all duration-200 hover:shadow-2xl ${style.glow} group z-10`}
             style={{
                 left: node.x,
                 top: node.y,
-                boxShadow: isSelected ? '0 0 0 2px rgba(59, 130, 246, 0.5)' : '0 4px 30px rgba(0, 0, 0, 0.5)',
             }}
-            // Close menu if clicking elsewhere on the node
             onClick={(e) => { e.stopPropagation(); setShowSparkMenu(false); }} 
             onMouseUp={(e) => { e.stopPropagation(); onStartConnection(node, true); }} 
         >
-            <div className={`h-0.5 w-full bg-gradient-to-r from-transparent via-${style.color.split('-')[1]}-500 to-transparent opacity-50`}></div>
+            {/* Top Gradient Line */}
+            <div className={`h-1 w-full bg-gradient-to-r ${style.gradient} opacity-70`}></div>
 
             {/* HEADER */}
             <div 
-                className="h-9 flex items-center justify-between px-3 cursor-move bg-white/5 border-b border-white/5 select-none rounded-t-xl"
-                onMouseDown={(e) => onStartDrag(e, node)}
+                className={`h-10 flex items-center justify-between px-3 bg-gradient-to-b from-white/5 to-transparent border-b border-white/5 select-none rounded-t-xl ${
+                  isLocked ? 'cursor-not-allowed opacity-50' : 'cursor-move'
+                }`}
+                onMouseDown={(e) => !isLocked && onStartDrag(e, node)}
             >
                 <div className={`flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest ${style.color}`}>
-                    {detailLevel !== 'low' ? style.icon : <div className="scale-150 pl-1">{style.icon}</div>}
-                    {detailLevel !== 'low' && style.label}
+                    {detailLevel !== 'low' ? (
+                      <div className="flex items-center gap-2">
+                        {style.icon}
+                        <span>{style.label}</span>
+                      </div>
+                    ) : (
+                      <div className="scale-150 pl-1">{style.icon}</div>
+                    )}
                 </div>
                 
                 {detailLevel === 'high' && (
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity relative">
-                        {/* SPARK AGENT BUTTON */}
                         <button 
-                            onClick={(e) => { 
-                                e.stopPropagation(); 
-                                setShowSparkMenu(!showSparkMenu); 
-                            }} 
-                            className={`text-gray-500 hover:text-yellow-400 p-1 rounded hover:bg-white/10 ${isSparking || showSparkMenu ? 'text-yellow-400 bg-white/10' : ''}`}
+                            onClick={(e) => { e.stopPropagation(); setIsLocked(!isLocked); }} 
+                            className={`p-1 rounded transition-colors ${isLocked ? 'text-red-400' : 'text-gray-500 hover:text-white'}`}
+                            title={isLocked ? "Unlock" : "Lock"}
+                        >
+                            {isLocked ? <Lock size={12}/> : <Unlock size={12}/>}
+                        </button>
+                        
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); setShowSparkMenu(!showSparkMenu); }} 
+                            className={`p-1 rounded transition-colors ${isSparking || showSparkMenu ? 'text-yellow-400 bg-yellow-500/10' : 'text-gray-500 hover:text-yellow-400'}`}
                             title="AI Actions"
                         >
                             {isSparking ? <Loader2 size={12} className="animate-spin"/> : <Sparkles size={12}/>}
                         </button>
                         
-                        <button onClick={(e) => { e.stopPropagation(); onDelete(node.id); }} className="text-gray-500 hover:text-red-400 p-1 rounded hover:bg-white/10"><Trash2 size={12}/></button>
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); onDuplicate(node); }} 
+                            className="text-gray-500 hover:text-blue-400 p-1 rounded hover:bg-blue-500/10"
+                            title="Duplicate"
+                        >
+                            <Copy size={12}/>
+                        </button>
+                        
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); onDelete(node.id); }} 
+                            className="text-gray-500 hover:text-red-400 p-1 rounded hover:bg-red-500/10"
+                            title="Delete"
+                        >
+                            <Trash2 size={12}/>
+                        </button>
 
                         {/* --- AI ACTION MENU --- */}
-                        {showSparkMenu && !isSparking && (
-                            <div className="absolute top-8 right-0 w-36 bg-[#0a0a0a] border border-white/20 rounded-lg shadow-2xl z-50 overflow-hidden flex flex-col text-xs animate-in fade-in zoom-in-95 duration-200">
-                                <div className="px-2 py-1.5 bg-white/5 text-[9px] font-bold text-gray-500 uppercase tracking-wider">AI Assistant</div>
-                                <button onClick={(e) => { e.stopPropagation(); onSpark(node, 'expand'); setShowSparkMenu(false); }} className="px-3 py-2 text-left hover:bg-blue-500/20 hover:text-blue-400 transition-colors flex items-center gap-2 border-b border-white/5">
-                                    <MoreHorizontal size={12}/> Expand
+                        <AnimatePresence>
+                          {showSparkMenu && !isSparking && (
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0.9, y: -5 }}
+                              animate={{ opacity: 1, scale: 1, y: 0 }}
+                              exit={{ opacity: 0, scale: 0.9 }}
+                              className="absolute top-9 right-0 w-44 bg-[#0a0a0a] border border-white/20 rounded-lg shadow-2xl z-50 overflow-hidden flex flex-col text-xs"
+                            >
+                                <div className="px-3 py-2 bg-gradient-to-r from-yellow-500/10 to-transparent border-b border-white/5 text-[9px] font-bold text-yellow-400 uppercase tracking-wider flex items-center gap-2">
+                                  <Sparkles size={10}/> AI Assistant
+                                </div>
+                                <button onClick={(e) => { e.stopPropagation(); onSpark(node, 'expand'); setShowSparkMenu(false); }} className="px-3 py-2.5 text-left hover:bg-blue-500/10 hover:text-blue-400 transition-colors flex items-center gap-2 border-b border-white/5">
+                                    <GitBranch size={12}/> Expand Ideas
                                 </button>
-                                <button onClick={(e) => { e.stopPropagation(); onSpark(node, 'critique'); setShowSparkMenu(false); }} className="px-3 py-2 text-left hover:bg-red-500/20 hover:text-red-400 transition-colors flex items-center gap-2 border-b border-white/5">
-                                    <Zap size={12}/> Critique
+                                <button onClick={(e) => { e.stopPropagation(); onSpark(node, 'critique'); setShowSparkMenu(false); }} className="px-3 py-2.5 text-left hover:bg-red-500/10 hover:text-red-400 transition-colors flex items-center gap-2 border-b border-white/5">
+                                    <Target size={12}/> Find Issues
                                 </button>
-                                <button onClick={(e) => { e.stopPropagation(); onSpark(node, 'code'); setShowSparkMenu(false); }} className="px-3 py-2 text-left hover:bg-green-500/20 hover:text-green-400 transition-colors flex items-center gap-2">
-                                    <FileCode size={12}/> Generate Code
+                                <button onClick={(e) => { e.stopPropagation(); onSpark(node, 'code'); setShowSparkMenu(false); }} className="px-3 py-2.5 text-left hover:bg-green-500/10 hover:text-green-400 transition-colors flex items-center gap-2 border-b border-white/5">
+                                    <Code2 size={12}/> Generate Code
                                 </button>
-                            </div>
-                        )}
+                                <button onClick={(e) => { e.stopPropagation(); onSpark(node, 'simplify'); setShowSparkMenu(false); }} className="px-3 py-2.5 text-left hover:bg-purple-500/10 hover:text-purple-400 transition-colors flex items-center gap-2">
+                                    <Lightbulb size={12}/> Simplify
+                                </button>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
                     </div>
                 )}
             </div>
@@ -136,16 +326,26 @@ const CanvasNode = React.memo(({
                         value={node.data.title}
                         onChange={(e) => onUpdate(node.id, { data: { ...node.data, title: e.target.value } })}
                         placeholder="Node Title..."
+                        disabled={isLocked}
                     />
-                    <div className="h-px bg-white/5 w-full"></div>
+                    <div className="h-px bg-gradient-to-r from-transparent via-white/10 to-transparent w-full"></div>
                     <textarea 
-                        className="bg-black/20 rounded p-2 text-gray-400 text-xs w-full outline-none resize-none h-24 placeholder-gray-700 leading-relaxed font-mono border border-transparent focus:border-white/10 focus:bg-black/40 transition-all custom-scrollbar"
+                        className="bg-black/30 rounded-lg p-2.5 text-gray-400 text-xs w-full outline-none resize-none h-28 placeholder-gray-700 leading-relaxed font-mono border border-transparent focus:border-blue-500/30 focus:bg-black/50 transition-all custom-scrollbar"
                         value={node.data.content}
                         onChange={(e) => onUpdate(node.id, { data: { ...node.data, content: e.target.value } })}
-                        placeholder="// Logic..."
+                        placeholder={node.type === 'file' ? '// Your code here...' : node.type === 'db' ? 'Schema definition...' : 'Notes and ideas...'}
                         spellCheck={false}
+                        disabled={isLocked}
                     />
-                    <div className="flex justify-between items-center pt-1"><div className="text-[9px] text-gray-600 font-mono">ID: {node.id.slice(0,4)}</div></div>
+                    <div className="flex justify-between items-center pt-1.5 border-t border-white/5">
+                      <div className="flex items-center gap-2">
+                        <div className="text-[9px] text-gray-600 font-mono">ID: {node.id.slice(0,6)}</div>
+                        {node.data.content.length > 0 && (
+                          <div className="text-[9px] text-gray-600">{node.data.content.length} chars</div>
+                        )}
+                      </div>
+                      <div className={`w-2 h-2 rounded-full ${isLocked ? 'bg-red-500' : 'bg-green-500'} opacity-50`}></div>
+                    </div>
                 </div>
             ) : detailLevel === 'medium' ? (
                 <div className="p-4 flex items-center justify-center h-full">
@@ -155,22 +355,27 @@ const CanvasNode = React.memo(({
                 </div>
             ) : (
                 <div className="flex-1 flex items-center justify-center opacity-30">
-                    <MoreHorizontal size={24} className="text-white" />
+                    <Layers size={24} className="text-white" />
                 </div>
             )}
 
             {/* OUTPUT PORT */}
             {detailLevel !== 'low' && (
                 <div 
-                    className="absolute -right-3 top-10 w-6 h-6 flex items-center justify-center cursor-crosshair group/connector z-50"
+                    className="absolute -right-3 top-12 w-6 h-6 flex items-center justify-center cursor-crosshair group/connector z-50"
                     onMouseDown={(e) => {
                         e.stopPropagation();
                         e.preventDefault();
                         onStartConnection(node, false); 
                     }}
                 >
-                    <div className="w-2.5 h-2.5 rounded-full bg-[#1a1a1a] border border-gray-500 group-hover/connector:bg-blue-500 group-hover/connector:border-blue-400 group-hover/connector:scale-125 transition-all shadow-lg"></div>
+                    <div className="w-3 h-3 rounded-full bg-[#0a0a0a] border-2 border-gray-600 group-hover/connector:border-blue-400 group-hover/connector:bg-blue-500 group-hover/connector:scale-125 transition-all shadow-lg"></div>
                 </div>
+            )}
+
+            {/* Selection Indicator */}
+            {isSelected && (
+              <div className="absolute -inset-1 border-2 border-blue-500 rounded-xl pointer-events-none animate-pulse"></div>
             )}
         </motion.div>
     );
@@ -207,6 +412,9 @@ export const Canvas = () => {
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [hoveredConnection, setHoveredConnection] = useState(null);
   const [sparkingNodeId, setSparkingNodeId] = useState(null);
+  const [contextMenu, setContextMenu] = useState(null);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
 
   // Refs
   const containerRef = useRef(null);
@@ -218,10 +426,53 @@ export const Canvas = () => {
   useEffect(() => { stateRef.current.pan = pan; }, [pan]);
   useEffect(() => { stateRef.current.nodes = canvasNodes; }, [canvasNodes]);
 
+  // Track container size
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setContainerSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  // Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Delete key for selected nodes
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedNodes.size > 0 && !e.target.matches('input, textarea')) {
+          e.preventDefault();
+          selectedNodes.forEach(id => deleteCanvasNode(id));
+          setSelectedNodes(new Set());
+        }
+      }
+      // Cmd/Ctrl + D to duplicate
+      if ((e.metaKey || e.ctrlKey) && e.key === 'd') {
+        e.preventDefault();
+        selectedNodes.forEach(id => {
+          const node = canvasNodes.find(n => n.id === id);
+          if (node) handleDuplicate(node);
+        });
+      }
+      // Cmd/Ctrl + A to select all
+      if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+        e.preventDefault();
+        setSelectedNodes(new Set(canvasNodes.map(n => n.id)));
+      }
+      // Escape to deselect
+      if (e.key === 'Escape') {
+        setSelectedNodes(new Set());
+        setShowTemplates(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedNodes, canvasNodes, deleteCanvasNode]);
+
   // Global Events
   useEffect(() => {
     const handleGlobalMove = (e) => {
-      // Mouse tracking for connection lines
       if (connectingSource && containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
         setMousePos({ 
@@ -272,8 +523,8 @@ export const Canvas = () => {
         const maxY = Math.max(startY, endY);
         
         const selected = stateRef.current.nodes.filter(node => 
-          node.x + 140 >= minX && node.x + 140 <= maxX &&
-          node.y + 80 >= minY && node.y + 80 <= maxY
+          node.x + 160 >= minX && node.x + 160 <= maxX &&
+          node.y + 100 >= minY && node.y + 100 <= maxY
         );
         setSelectedNodes(new Set(selected.map(n => n.id)));
         setSelectionBox(null);
@@ -298,6 +549,14 @@ export const Canvas = () => {
 
   // Handlers
   const startCanvasDrag = (e) => {
+    if (e.button === 2) {
+      e.preventDefault();
+      const x = e.clientX;
+      const y = e.clientY;
+      setContextMenu({ x, y, type: 'canvas' });
+      return;
+    }
+
     if (e.button === 1 || e.target === containerRef.current || e.target.classList.contains('grid-bg')) {
        if (e.shiftKey) {
           const rect = containerRef.current.getBoundingClientRect();
@@ -350,7 +609,16 @@ export const Canvas = () => {
               return null;
           });
       }
-  }, [canvasConnections]);
+  }, [canvasConnections, setCanvasConnections]);
+
+  const handleDuplicate = useCallback((node) => {
+    const newX = node.x + 60;
+    const newY = node.y + 60;
+    addCanvasNode(node.type, newX, newY, { 
+      title: `${node.data.title} (Copy)`, 
+      content: node.data.content 
+    });
+  }, [addCanvasNode]);
 
   // --- SMART SPARK AGENT HANDLER ---
   const handleSpark = async (parentNode, mode = 'expand') => {
@@ -358,43 +626,44 @@ export const Canvas = () => {
       setSparkingNodeId(parentNode.id);
 
       try {
-        // Prepare Request
         let prompt = "";
         let mockResponses = [];
         
-        // Mode Selection Logic (In a real app, send 'prompt' to API)
         if (mode === 'expand') {
             prompt = `Given the concept "${parentNode.data.title}", suggest 3 sub-topics.`;
-            mockResponses = ["Sub-Module Alpha", "Integration Layer", "Data Pipeline"];
+            mockResponses = ["Core Logic", "Helper Functions", "Error Handling"];
         } else if (mode === 'critique') {
             prompt = `Critique the logic in "${parentNode.data.title}". Find 3 potential flaws.`;
-            mockResponses = ["Race Condition Risk", "Input Validation Missing", "Memory Leak Potential"];
+            mockResponses = ["Performance Issue", "Security Concern", "Edge Case"];
         } else if (mode === 'code') {
             prompt = `Generate code snippets for "${parentNode.data.title}".`;
-            mockResponses = ["types.ts", "controller.js", "styles.css"];
+            mockResponses = ["utils.js", "api.ts", "constants.js"];
+        } else if (mode === 'simplify') {
+            prompt = `Simplify "${parentNode.data.title}" into 2 simpler concepts.`;
+            mockResponses = ["Basic Implementation", "Advanced Features"];
         }
 
-        // Simulate Latency
         await new Promise(r => setTimeout(r, 1200)); 
         
-        // Generate and Place Nodes
         mockResponses.forEach((title, index) => {
-            // Find non-overlapping position
             const pos = findSmartPosition(parentNode.x, parentNode.y, index, mockResponses.length, stateRef.current.nodes);
             
-            // Determine Node Type based on Mode
             let type = 'note';
             if (mode === 'code') type = 'file';
             if (mode === 'critique') type = 'note'; 
             
             const content = mode === 'code' 
-                ? "// AI Generated Code..." 
+                ? `// ${title}\nfunction example() {\n  // TODO: Implement\n}` 
                 : mode === 'critique' 
-                    ? "⚠️ AI identified potential issue..." 
-                    : `AI Analysis based on ${parentNode.data.title}...`;
+                    ? `⚠️ ${title}\n\nDescription: AI detected potential issue here...` 
+                    : `Related to: ${parentNode.data.title}\n\nAnalysis...`;
 
-            // Add Node
-            addCanvasNode(type, pos.x, pos.y, { title, content });
+            const newNodeId = addCanvasNode(type, pos.x, pos.y, { title, content });
+            
+            // Auto-connect to parent
+            setTimeout(() => {
+              setCanvasConnections(prev => [...prev, { from: parentNode.id, to: newNodeId }]);
+            }, 100);
         });
 
       } catch (error) {
@@ -412,7 +681,7 @@ export const Canvas = () => {
         return `${from} -> ${to}`;
     }).join('\n');
     setCurrentView('chat');
-    sendMessage(`Analyze System Architecture:\n${context}\n\nFlow:\n${connectionsCtx}`);
+    sendMessage(`Analyze System Architecture:\n\n${context}\n\nConnections:\n${connectionsCtx}`);
   };
 
   const autoLayout = () => {
@@ -423,13 +692,35 @@ export const Canvas = () => {
             updateCanvasNode(node.id, { x: cx, y: cy });
             positioned.add(node.id);
             cx += 400;
-            if ((i + 1) % 3 === 0) { cx = 100; cy += 300; }
+            if ((i + 1) % 3 === 0) { cx = 100; cy += 350; }
         }
     });
   };
 
+  const centerView = () => {
+    if (canvasNodes.length === 0) return;
+    const avgX = canvasNodes.reduce((sum, n) => sum + n.x, 0) / canvasNodes.length;
+    const avgY = canvasNodes.reduce((sum, n) => sum + n.y, 0) / canvasNodes.length;
+    setPan({
+      x: containerSize.width / 2 - avgX * zoom,
+      y: containerSize.height / 2 - avgY * zoom
+    });
+  };
+
+  const addNodeFromTemplate = (template) => {
+    const centerX = (-pan.x + containerSize.width / 2) / zoom - 160;
+    const centerY = (-pan.y + containerSize.height / 2) / zoom - 100;
+    addCanvasNode(template.type, centerX, centerY, { 
+      title: template.title, 
+      content: template.content 
+    });
+  };
+
   return (
-    <div className="w-full h-full relative bg-[#030304] overflow-hidden flex flex-col font-sans select-none">
+    <div 
+      className="w-full h-full relative bg-[#030304] overflow-hidden flex flex-col font-sans select-none"
+      onContextMenu={(e) => e.preventDefault()}
+    >
       {/* GLOBAL CSS FOR ANIMATION */}
       <style>{`
         @keyframes flow { to { stroke-dashoffset: -20; } }
@@ -450,16 +741,80 @@ export const Canvas = () => {
       
       {/* TOOLBAR */}
       <div className="absolute top-6 left-1/2 -translate-x-1/2 flex items-center gap-3 z-50">
-        <div className="glass-panel px-1.5 py-1.5 rounded-full flex gap-1 shadow-2xl border border-white/10 bg-[#0a0a0a]/50 backdrop-blur-md">
-            <button onClick={() => addCanvasNode('file', -pan.x + window.innerWidth/2 - 140, -pan.y + window.innerHeight/2 - 100)} className="p-2.5 hover:bg-blue-500/20 rounded-full text-gray-400 hover:text-blue-400 transition-all hover:scale-105"><FileCode size={20}/></button>
-            <button onClick={() => addCanvasNode('note', -pan.x + window.innerWidth/2 - 140, -pan.y + window.innerHeight/2 - 100)} className="p-2.5 hover:bg-amber-500/20 rounded-full text-gray-400 hover:text-amber-400 transition-all hover:scale-105"><StickyNote size={20}/></button>
-            <button onClick={() => addCanvasNode('db', -pan.x + window.innerWidth/2 - 140, -pan.y + window.innerHeight/2 - 100)} className="p-2.5 hover:bg-purple-500/20 rounded-full text-gray-400 hover:text-purple-400 transition-all hover:scale-105"><Database size={20}/></button>
-            <div className="w-px h-6 bg-white/10 mx-1 self-center"></div>
-            <button onClick={autoLayout} className="p-2.5 hover:bg-green-500/20 rounded-full text-gray-400 hover:text-green-400 transition-all hover:scale-105"><Grid size={20}/></button>
-            {selectedNodes.size > 0 && <button onClick={() => { selectedNodes.forEach(id => deleteCanvasNode(id)); setSelectedNodes(new Set()); }} className="p-2.5 hover:bg-red-500/20 rounded-full text-gray-400 hover:text-red-400 transition-all hover:scale-105"><Trash2 size={20}/></button>}
-            <div className="w-px h-6 bg-white/10 mx-1 self-center"></div>
-            <button onClick={generateArchitecture} className={`flex items-center gap-2 pl-3 pr-4 py-1.5 rounded-full text-xs font-bold text-white ${theme.primaryBg} hover:brightness-110 shadow-lg shadow-indigo-500/20 transition-all`}><Zap size={14} className="animate-pulse"/><span>Generate</span></button>
+        <div className="glass-panel px-2 py-2 rounded-2xl flex gap-2 shadow-2xl border border-white/10 bg-[#0a0a0a]/80 backdrop-blur-xl">
+            <button 
+              onClick={() => setShowTemplates(!showTemplates)} 
+              className={`p-2.5 rounded-xl transition-all flex items-center gap-2 ${
+                showTemplates ? 'bg-blue-500/20 text-blue-400' : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+              title="Templates"
+            >
+              <Plus size={18}/>
+              <ChevronDown size={14} className={`transition-transform ${showTemplates ? 'rotate-180' : ''}`}/>
+            </button>
+            
+            <div className="w-px h-8 bg-white/10 self-center"></div>
+            
+            <button onClick={() => addCanvasNode('file', -pan.x/zoom + containerSize.width/(2*zoom) - 160, -pan.y/zoom + containerSize.height/(2*zoom) - 100)} className="p-2.5 hover:bg-blue-500/20 rounded-xl text-gray-400 hover:text-blue-400 transition-all" title="File Node"><FileCode size={18}/></button>
+            <button onClick={() => addCanvasNode('note', -pan.x/zoom + containerSize.width/(2*zoom) - 160, -pan.y/zoom + containerSize.height/(2*zoom) - 100)} className="p-2.5 hover:bg-amber-500/20 rounded-xl text-gray-400 hover:text-amber-400 transition-all" title="Note Node"><StickyNote size={18}/></button>
+            <button onClick={() => addCanvasNode('db', -pan.x/zoom + containerSize.width/(2*zoom) - 160, -pan.y/zoom + containerSize.height/(2*zoom) - 100)} className="p-2.5 hover:bg-purple-500/20 rounded-xl text-gray-400 hover:text-purple-400 transition-all" title="Database Node"><Database size={18}/></button>
+            
+            <div className="w-px h-8 bg-white/10 self-center"></div>
+            
+            <button onClick={autoLayout} className="p-2.5 hover:bg-green-500/20 rounded-xl text-gray-400 hover:text-green-400 transition-all" title="Auto Layout"><Grid size={18}/></button>
+            <button onClick={centerView} className="p-2.5 hover:bg-cyan-500/20 rounded-xl text-gray-400 hover:text-cyan-400 transition-all" title="Center View"><Target size={18}/></button>
+            
+            {selectedNodes.size > 0 && (
+              <>
+                <div className="w-px h-8 bg-white/10 self-center"></div>
+                <button onClick={() => { selectedNodes.forEach(id => deleteCanvasNode(id)); setSelectedNodes(new Set()); }} className="p-2.5 hover:bg-red-500/20 rounded-xl text-gray-400 hover:text-red-400 transition-all" title="Delete Selected"><Trash2 size={18}/></button>
+              </>
+            )}
+            
+            <div className="w-px h-8 bg-white/10 self-center"></div>
+            
+            <button 
+              onClick={generateArchitecture} 
+              className={`flex items-center gap-2 pl-3 pr-4 py-2 rounded-xl text-xs font-bold text-white ${theme.primaryBg} hover:brightness-110 shadow-lg transition-all`}
+            >
+              <Sparkles size={14} className="animate-pulse"/>
+              <span>AI Analyze</span>
+            </button>
         </div>
+
+        {/* Template Dropdown */}
+        <AnimatePresence>
+          {showTemplates && (
+            <motion.div
+              initial={{ opacity: 0, y: -10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -10, scale: 0.95 }}
+              className="absolute top-16 left-0 w-64 bg-[#0a0a0a]/95 border border-white/20 rounded-xl shadow-2xl overflow-hidden backdrop-blur-xl z-50"
+            >
+              <div className="px-4 py-3 border-b border-white/10 bg-gradient-to-r from-blue-500/10 to-transparent">
+                <h3 className="text-sm font-bold text-white">Node Templates</h3>
+                <p className="text-[10px] text-gray-500 mt-0.5">Quick start your workflow</p>
+              </div>
+              <div className="p-2 max-h-[400px] overflow-y-auto custom-scrollbar">
+                {Object.entries(NODE_TEMPLATES).map(([name, template]) => (
+                  <button
+                    key={name}
+                    onClick={() => { addNodeFromTemplate(template); setShowTemplates(false); }}
+                    className="w-full px-3 py-2.5 rounded-lg hover:bg-white/5 text-left transition-colors group flex items-start gap-3"
+                  >
+                    {template.type === 'file' && <FileCode size={16} className="text-blue-400 mt-0.5" />}
+                    {template.type === 'note' && <StickyNote size={16} className="text-amber-400 mt-0.5" />}
+                    {template.type === 'db' && <Database size={16} className="text-purple-400 mt-0.5" />}
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-white group-hover:text-blue-400 transition-colors">{name}</div>
+                      <div className="text-xs text-gray-500 line-clamp-1">{template.content}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* CANVAS VIEWPORT */}
@@ -473,7 +828,7 @@ export const Canvas = () => {
           className="absolute origin-top-left transition-transform duration-75 ease-out will-change-transform"
           style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
         >
-            {/* SVG CONNECTION LAYER (Fixed & Optimized) */}
+            {/* SVG CONNECTION LAYER */}
             <svg 
                 className="absolute top-0 left-0 overflow-visible pointer-events-none"
                 style={{ 
@@ -484,27 +839,72 @@ export const Canvas = () => {
                 }}
             >
                 <defs>
-                    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                        <polygon points="0 0, 10 3.5, 0 7" fill="#60a5fa" />
+                    {/* Gradient for normal connections */}
+                    <linearGradient id="connectionGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#60a5fa" stopOpacity="0.6"/>
+                        <stop offset="50%" stopColor="#818cf8" stopOpacity="0.8"/>
+                        <stop offset="100%" stopColor="#60a5fa" stopOpacity="0.6"/>
+                    </linearGradient>
+                    
+                    {/* Gradient for hover */}
+                    <linearGradient id="connectionGradientHover" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#f87171" stopOpacity="0.8"/>
+                        <stop offset="50%" stopColor="#fb923c" stopOpacity="1"/>
+                        <stop offset="100%" stopColor="#f87171" stopOpacity="0.8"/>
+                    </linearGradient>
+                    
+                    {/* Gradient for active (AI working) */}
+                    <linearGradient id="connectionGradientActive" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.6"/>
+                        <stop offset="50%" stopColor="#facc15" stopOpacity="1"/>
+                        <stop offset="100%" stopColor="#fbbf24" stopOpacity="0.6"/>
+                    </linearGradient>
+                    
+                    {/* Enhanced arrow markers */}
+                    <marker id="arrowhead" markerWidth="12" markerHeight="10" refX="11" refY="5" orient="auto">
+                        <path d="M 0 0 L 12 5 L 0 10 z" fill="url(#connectionGradient)" />
                     </marker>
-                    <marker id="arrowhead-hover" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                        <polygon points="0 0, 10 3.5, 0 7" fill="#f87171" />
+                    <marker id="arrowhead-hover" markerWidth="12" markerHeight="10" refX="11" refY="5" orient="auto">
+                        <path d="M 0 0 L 12 5 L 0 10 z" fill="#fb923c" />
                     </marker>
+                    <marker id="arrowhead-active" markerWidth="12" markerHeight="10" refX="11" refY="5" orient="auto">
+                        <path d="M 0 0 L 12 5 L 0 10 z" fill="#facc15" />
+                    </marker>
+                    
+                    {/* Enhanced glow filter */}
+                    <filter id="glow">
+                      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                      <feMerge>
+                        <feMergeNode in="coloredBlur"/>
+                        <feMergeNode in="coloredBlur"/>
+                        <feMergeNode in="SourceGraphic"/>
+                      </feMerge>
+                    </filter>
+                    
+                    <filter id="glowStrong">
+                      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+                      <feMerge>
+                        <feMergeNode in="coloredBlur"/>
+                        <feMergeNode in="coloredBlur"/>
+                        <feMergeNode in="coloredBlur"/>
+                        <feMergeNode in="SourceGraphic"/>
+                      </feMerge>
+                    </filter>
                 </defs>
 
                 {canvasConnections.map((conn, i) => {
-                    const source = canvasNodes.find(n => n.id == conn.from);
-                    const target = canvasNodes.find(n => n.id == conn.to);
+                    const source = canvasNodes.find(n => n.id === conn.from);
+                    const target = canvasNodes.find(n => n.id === conn.to);
                     
                     if (!source || !target) return null;
 
                     const isHovered = hoveredConnection === i;
                     const isActive = sparkingNodeId === conn.from;
 
-                    const startX = source.x + 280; 
-                    const startY = source.y + 44; 
+                    const startX = source.x + 320; 
+                    const startY = source.y + 48; 
                     const endX = target.x;
-                    const endY = target.y + 44;
+                    const endY = target.y + 48;
 
                     return (
                         <g key={i} style={{ pointerEvents: 'auto' }}>
@@ -513,44 +913,94 @@ export const Canvas = () => {
                                 d={getBezierPath(startX, startY, endX, endY)} 
                                 fill="none" 
                                 stroke="transparent" 
-                                strokeWidth="20" 
+                                strokeWidth="24" 
                                 className="cursor-pointer"
                                 onMouseEnter={() => setHoveredConnection(i)} 
                                 onMouseLeave={() => setHoveredConnection(null)}
                                 onClick={(e) => { 
                                     e.stopPropagation(); 
-                                    if (window.confirm('Delete connection?')) {
+                                    if (window.confirm('Delete this connection?')) {
                                         setCanvasConnections(p => p.filter((_, idx) => idx !== i)); 
                                     }
                                 }}
                             />
-                            {/* Visual Line */}
+                            
+                            {/* Background glow line */}
+                            {(isHovered || isActive) && (
+                              <path 
+                                  d={getBezierPath(startX, startY, endX, endY)} 
+                                  fill="none" 
+                                  stroke={isHovered ? "#fb923c" : "#facc15"} 
+                                  strokeWidth="8"
+                                  className="pointer-events-none opacity-40 blur-sm"
+                              />
+                            )}
+                            
+                            {/* Main Visual Line */}
                             <path 
                                 d={getBezierPath(startX, startY, endX, endY)} 
                                 fill="none" 
-                                stroke={isHovered ? "#f87171" : isActive ? "#facc15" : "#60a5fa"} 
-                                strokeWidth={isHovered ? "4" : "2"}
-                                className={`transition-all duration-300 pointer-events-none shadow-lg ${isActive ? 'connection-flow' : ''}`}
-                                style={{ filter: 'drop-shadow(0 0 3px rgba(96, 165, 250, 0.5))' }}
-                                markerEnd={isHovered ? "url(#arrowhead-hover)" : "url(#arrowhead)"}
+                                stroke={isHovered ? "url(#connectionGradientHover)" : isActive ? "url(#connectionGradientActive)" : "url(#connectionGradient)"} 
+                                strokeWidth={isHovered ? "3.5" : isActive ? "3" : "2.5"}
+                                strokeLinecap="round"
+                                className={`transition-all duration-300 pointer-events-none ${isActive ? 'connection-flow' : ''}`}
+                                style={{ filter: isHovered ? 'url(#glowStrong)' : 'url(#glow)' }}
+                                markerEnd={isHovered ? "url(#arrowhead-hover)" : isActive ? "url(#arrowhead-active)" : "url(#arrowhead)"}
                             />
-                            {/* Anchor Dots */}
-                            <circle cx={startX} cy={startY} r="3" fill="#60a5fa" />
-                            <circle cx={endX} cy={endY} r="3" fill="#60a5fa" />
+                            
+                            {/* Connection dots */}
+                            <circle 
+                              cx={startX} 
+                              cy={startY} 
+                              r={isHovered || isActive ? "4" : "3"} 
+                              fill={isHovered ? "#fb923c" : isActive ? "#facc15" : "#60a5fa"}
+                              className="transition-all duration-200"
+                              style={{ filter: 'url(#glow)' }}
+                            />
+                            <circle 
+                              cx={endX} 
+                              cy={endY} 
+                              r={isHovered || isActive ? "4" : "3"} 
+                              fill={isHovered ? "#fb923c" : isActive ? "#facc15" : "#60a5fa"}
+                              className="transition-all duration-200"
+                              style={{ filter: 'url(#glow)' }}
+                            />
                         </g>
                     );
                 })}
 
                 {/* Dragging Line */}
                 {connectingSource && (
-                    <path 
-                        d={getBezierPath(connectingSource.x + 280, connectingSource.y + 44, mousePos.x, mousePos.y)} 
-                        fill="none" 
-                        stroke="#facc15" 
-                        strokeWidth="2" 
-                        strokeDasharray="5,5" 
+                    <>
+                      {/* Glow background */}
+                      <path 
+                          d={getBezierPath(connectingSource.x + 320, connectingSource.y + 48, mousePos.x, mousePos.y)} 
+                          fill="none" 
+                          stroke="#facc15" 
+                          strokeWidth="6" 
+                          className="opacity-30 blur-sm"
+                      />
+                      {/* Main line */}
+                      <path 
+                          d={getBezierPath(connectingSource.x + 320, connectingSource.y + 48, mousePos.x, mousePos.y)} 
+                          fill="none" 
+                          stroke="url(#connectionGradientActive)" 
+                          strokeWidth="3" 
+                          strokeDasharray="8,4" 
+                          strokeLinecap="round"
+                          className="animate-pulse"
+                          style={{ filter: 'url(#glow)' }}
+                      />
+                      {/* Source dot */}
+                      <circle 
+                        cx={connectingSource.x + 320} 
+                        cy={connectingSource.y + 48} 
+                        r="4" 
+                        fill="#facc15"
                         className="animate-pulse"
-                    />
+                        style={{ filter: 'url(#glow)' }}
+                      />
+                    </>
                 )}
             </svg>
 
@@ -566,7 +1016,8 @@ export const Canvas = () => {
                         onStartDrag={handleStartNodeDrag}
                         onUpdate={updateCanvasNode}
                         onDelete={deleteCanvasNode}
-                        onSpark={handleSpark} // Passes (node, mode)
+                        onDuplicate={handleDuplicate}
+                        onSpark={handleSpark}
                         onStartConnection={handleConnectionLogic}
                     />
                 ))}
@@ -574,7 +1025,7 @@ export const Canvas = () => {
 
             {/* SELECTION BOX */}
             {selectionBox && (
-              <div className="absolute border-2 border-blue-500 bg-blue-500/10 pointer-events-none"
+              <div className="absolute border-2 border-blue-500 bg-blue-500/10 pointer-events-none rounded"
                 style={{
                   left: Math.min(selectionBox.startX, selectionBox.endX),
                   top: Math.min(selectionBox.startY, selectionBox.endY),
@@ -587,20 +1038,92 @@ export const Canvas = () => {
       </div>
 
       {/* FOOTER */}
-      <div className="absolute bottom-6 left-6 right-6 flex justify-between items-end pointer-events-none">
-          <div className="glass-panel px-4 py-2 rounded-lg bg-[#0a0a0a]/50 backdrop-blur-md border border-white/10 flex items-center gap-3 text-xs font-mono text-gray-500 pointer-events-auto">
-              <Cpu size={14} className={theme.accentText} />
-              <span>NODES: <span className="text-white">{canvasNodes.length}</span></span>
-              <span className="text-white/10">|</span>
-              <span>ZOOM: <span className="text-white">{Math.round(zoom * 100)}%</span></span>
-          </div>
-          <div className="glass-panel p-1 rounded-lg bg-[#0a0a0a]/50 backdrop-blur-md border border-white/10 flex flex-col gap-1 pointer-events-auto">
-                <button onClick={() => setZoom(z => Math.min(2.5, z + 0.2))} className="p-2 hover:bg-white/10 rounded-md text-gray-400 hover:text-white"><Maximize size={16}/></button>
-                <div className="text-[10px] text-center font-mono text-gray-500 py-1 border-t border-b border-white/5">{Math.round(zoom * 100)}%</div>
-                <button onClick={() => setZoom(z => Math.max(0.2, z - 0.2))} className="p-2 hover:bg-white/10 rounded-md text-gray-400 hover:text-white"><Minimize size={16}/></button>
+      <div className="absolute bottom-6 left-6 flex items-end gap-4 pointer-events-none z-40">
+          <div className="glass-panel px-4 py-2.5 rounded-xl bg-[#0a0a0a]/80 backdrop-blur-xl border border-white/10 flex items-center gap-4 text-xs font-mono text-gray-500 pointer-events-auto">
+              <div className="flex items-center gap-2">
+                <Cpu size={14} className={theme.accentText} />
+                <span>NODES</span>
+                <span className="text-white font-bold">{canvasNodes.length}</span>
+              </div>
+              <div className="w-px h-4 bg-white/10"></div>
+              <div className="flex items-center gap-2">
+                <Link2 size={14} className="text-purple-400" />
+                <span>LINKS</span>
+                <span className="text-white font-bold">{canvasConnections.length}</span>
+              </div>
+              <div className="w-px h-4 bg-white/10"></div>
+              <div className="flex items-center gap-2">
+                <Target size={14} className="text-green-400" />
+                <span>ZOOM</span>
+                <span className="text-white font-bold">{Math.round(zoom * 100)}%</span>
+              </div>
+              {selectedNodes.size > 0 && (
+                <>
+                  <div className="w-px h-4 bg-white/10"></div>
+                  <div className="flex items-center gap-2">
+                    <CheckSquare size={14} className="text-blue-400" />
+                    <span>SELECTED</span>
+                    <span className="text-white font-bold">{selectedNodes.size}</span>
+                  </div>
+                </>
+              )}
           </div>
       </div>
-      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,transparent_20%,#000000_100%)] opacity-60 z-20"></div>
+
+      {/* ZOOM CONTROLS - BOTTOM RIGHT ABOVE MINIMAP */}
+      <div className="absolute bottom-6 right-6 flex flex-col gap-3 z-50 pointer-events-auto">
+          {canvasNodes.length > 0 && (
+            <MiniMap 
+              nodes={canvasNodes}
+              pan={pan}
+              zoom={zoom}
+              containerSize={containerSize}
+              onNavigate={(x, y) => setPan({ x, y })}
+            />
+          )}
+          
+          <div className="glass-panel rounded-xl bg-[#0a0a0a]/80 backdrop-blur-xl border border-white/10 overflow-hidden">
+              <button 
+                onClick={() => setZoom(z => Math.min(2.5, z + 0.2))} 
+                className="w-full p-2.5 hover:bg-white/5 text-gray-400 hover:text-white transition-colors border-b border-white/5"
+                title="Zoom In"
+              >
+                <Maximize size={16} className="mx-auto"/>
+              </button>
+              <div className="px-3 py-2 text-center">
+                <div className="text-xs font-mono font-bold text-white">{Math.round(zoom * 100)}%</div>
+              </div>
+              <button 
+                onClick={() => setZoom(z => Math.max(0.2, z - 0.2))} 
+                className="w-full p-2.5 hover:bg-white/5 text-gray-400 hover:text-white transition-colors border-t border-white/5"
+                title="Zoom Out"
+              >
+                <Minimize size={16} className="mx-auto"/>
+              </button>
+          </div>
+      </div>
+
+      {/* VIGNETTE OVERLAY */}
+      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,transparent_20%,#000000_100%)] opacity-50 z-30"></div>
+
+      {/* CONTEXT MENU */}
+      <AnimatePresence>
+        {contextMenu && (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            onClose={() => setContextMenu(null)}
+            items={[
+              { icon: <FileCode size={14}/>, label: 'Add File Node', onClick: () => addCanvasNode('file', -pan.x/zoom, -pan.y/zoom), shortcut: 'F' },
+              { icon: <StickyNote size={14}/>, label: 'Add Note', onClick: () => addCanvasNode('note', -pan.x/zoom, -pan.y/zoom), shortcut: 'N' },
+              { icon: <Database size={14}/>, label: 'Add Database', onClick: () => addCanvasNode('db', -pan.x/zoom, -pan.y/zoom), shortcut: 'D' },
+              { divider: true },
+              { icon: <Grid size={14}/>, label: 'Auto Layout', onClick: autoLayout },
+              { icon: <Target size={14}/>, label: 'Center View', onClick: centerView },
+            ]}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };

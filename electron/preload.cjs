@@ -7,15 +7,28 @@ contextBridge.exposeInMainWorld('lumina', {
   checkOllamaStatus: (url) => ipcRenderer.invoke('ollama:status', url),
   getModels: (url) => ipcRenderer.invoke('ollama:models', url),
   
-  // Streaming Chat (Nexus)
-  sendPrompt: (prompt, model, contextFiles, systemPrompt, settings, projectId) => 
-    ipcRenderer.send('ollama:stream-prompt', { prompt, model, contextFiles, systemPrompt, settings, projectId }),
+  // Streaming Chat (Nexus) - NOW WITH MULTIMODAL SUPPORT
+  sendPrompt: (prompt, model, contextFiles, systemPrompt, settings, projectId, images, documentContext) => 
+    ipcRenderer.send('ollama:stream-prompt', { 
+      prompt, 
+      model, 
+      contextFiles, 
+      systemPrompt, 
+      settings, 
+      projectId,
+      images, // NEW: Base64 images for vision
+      documentContext // NEW: Extracted text from documents
+    }),
   
   // JSON Agent (Dossier / Flashcards)
   generateJson: (prompt, model, settings, projectId) => ipcRenderer.invoke('ollama:generate-json', { prompt, model, settings, projectId }),
   
   // Text Completion (Zenith Ghost Writer)
   generateCompletion: (prompt, model, settings) => ipcRenderer.invoke('ollama:completion', { prompt, model, settings }),
+
+  // --- NEW: File Processing ---
+  extractTextFromFile: (filePath) => ipcRenderer.invoke('file:extract-text', filePath),
+  processImage: (imageData) => ipcRenderer.invoke('file:process-image', imageData),
 
   // --- AI Listeners ---
   onResponseChunk: (cb) => {
@@ -100,37 +113,4 @@ contextBridge.exposeInMainWorld('lumina', {
   
   loadCalendar: () => ipcRenderer.invoke('calendar:load'),
   saveCalendar: (events) => ipcRenderer.invoke('calendar:save', events),
-
-  // ==========================================
-  // 7. GOOGLE CALENDAR INTEGRATION
-  // ==========================================
-  
-  // Check if Google Calendar is available (dependencies installed)
-  checkGCalAvailability: () => ipcRenderer.invoke('gcal:check-availability'),
-  
-  // AUTOMATIC MODE: Connect via browser OAuth (opens localhost server)
-  connectGoogleCalendar: () => ipcRenderer.invoke('gcal:connect'),
-  
-  // MANUAL MODE: Get authorization URL
-  getGoogleAuthUrl: () => ipcRenderer.invoke('gcal:get-auth-url'),
-  
-  // MANUAL MODE: Submit authorization code
-  authenticateWithCode: (code) => ipcRenderer.invoke('gcal:authenticate-with-code', code),
-  
-  // Check connection status
-  checkGoogleCalendarStatus: () => ipcRenderer.invoke('gcal:status'),
-  
-  // Sync local events TO Google Calendar
-  syncToGoogle: (events) => ipcRenderer.invoke('gcal:sync-to-google', events),
-  
-  // Import events FROM Google Calendar
-  importFromGoogle: (startDate, endDate) => ipcRenderer.invoke('gcal:import-from-google', { startDate, endDate }),
-  
-  // Disconnect from Google Calendar
-  disconnectGoogleCalendar: () => ipcRenderer.invoke('gcal:disconnect'),
-  
-  // CREDENTIAL MANAGEMENT
-  saveGoogleCredentials: (clientId, clientSecret) => ipcRenderer.invoke('gcal:save-credentials', { clientId, clientSecret }),
-  getGoogleCredentials: () => ipcRenderer.invoke('gcal:get-credentials'),
-  clearGoogleCredentials: () => ipcRenderer.invoke('gcal:clear-credentials'),
 });

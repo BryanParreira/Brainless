@@ -4,7 +4,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm'; 
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { ArrowUp, User, StopCircle, Download, Check, Info, Code2, Eye, Sparkles, Wifi, WifiOff, FlaskConical, PenTool, BrainCircuit, GraduationCap, ShieldAlert, Zap, BookOpen, Layers, GitBranch, Brain } from 'lucide-react';
+import { ArrowUp, User, StopCircle, Download, Check, Info, Code2, Eye, Sparkles, Wifi, WifiOff, FlaskConical, PenTool, BrainCircuit, GraduationCap, ShieldAlert, Zap, BookOpen, Layers, GitBranch, Brain, Image as ImageIcon, File as FileIcon, X, Paperclip } from 'lucide-react';
 import clsx from 'clsx'; 
 import { LabBench } from './LabBench';
 
@@ -37,6 +37,54 @@ const ThinkingIndicator = ({ theme }) => (
     </div>
   </div>
 );
+
+// --- NEW: Attachment Preview Component ---
+const AttachmentPreview = ({ file, onRemove }) => {
+  const isImage = file.type.startsWith('image/');
+  const [preview, setPreview] = useState(null);
+
+  useEffect(() => {
+    if (isImage && file instanceof File) {
+      const reader = new FileReader();
+      reader.onloadend = () => setPreview(reader.result);
+      reader.readAsDataURL(file);
+    }
+  }, [file, isImage]);
+
+  return (
+    <div className="relative inline-block mr-2 mb-2 group">
+      {isImage && preview ? (
+        <div className="relative">
+          <img 
+            src={preview} 
+            alt={file.name} 
+            className="w-20 h-20 object-cover rounded-lg border border-white/20"
+          />
+          <button
+            onClick={onRemove}
+            className="absolute -top-2 -right-2 p-1 bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <X size={12} className="text-white" />
+          </button>
+          <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] px-1 py-0.5 truncate rounded-b-lg">
+            {file.name}
+          </div>
+        </div>
+      ) : (
+        <div className="relative flex items-center gap-2 px-3 py-2 bg-white/5 border border-white/20 rounded-lg">
+          <FileIcon size={16} className="text-gray-400" />
+          <span className="text-xs text-gray-300 max-w-[100px] truncate">{file.name}</span>
+          <button
+            onClick={onRemove}
+            className="ml-2 p-0.5 hover:bg-white/10 rounded"
+          >
+            <X size={12} className="text-gray-400" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const CodeBlock = ({ language, children }) => {
   const { openLabBench, theme } = useLumina();
@@ -108,11 +156,33 @@ const MessageBubble = React.memo(({ msg, theme, fontSize, isStreaming }) => {
         {isUser ? <User size={18} /> : <Brain size={18} className="text-white/90" />}
       </div>
 
-      <div className={clsx("flex-1 min-w-0 max-w-3xl", isUser ? "text-right" : "")}>
+      <div className={clsx("flex-1 min-w-0 max-w-3xl", isUser ? "flex flex-col items-end" : "")}>
         <div className={clsx("flex items-center gap-2 mb-2", isUser ? "justify-end" : "")}>
           <span className="text-xs font-semibold text-white/80">{isUser ? 'You' : 'OmniLab'}</span>
           {!isUser && <span className={`text-[9px] ${theme.softBg} ${theme.accentText} px-1.5 py-0.5 rounded border border-white/10 uppercase tracking-wider font-bold`}>AI</span>}
         </div>
+        
+        {/* Attachments Display - ONLY for user messages */}
+        {isUser && msg.attachments && msg.attachments.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2 justify-end">
+            {msg.attachments.map((att, idx) => (
+              att.type === 'image' ? (
+                <img 
+                  key={idx}
+                  src={att.data} 
+                  alt={att.name}
+                  className="max-w-xs max-h-64 rounded-xl border-2 border-white/20 shadow-xl object-cover"
+                />
+              ) : (
+                <div key={idx} className="flex items-center gap-2 px-3 py-2 bg-[#1A1A1A] border border-white/20 rounded-lg shadow-md">
+                  <FileIcon size={16} className="text-gray-400" />
+                  <span className="text-xs text-gray-300 font-medium">{att.name}</span>
+                </div>
+              )
+            ))}
+          </div>
+        )}
+
         <div className={clsx("leading-7 font-light tracking-wide", isUser ? "bg-[#1A1A1A] inline-block p-4 rounded-3xl rounded-tr-sm text-white/90 border border-white/10 shadow-md" : "text-gray-300")} style={{ fontSize: `${fontSize}px` }}>
             
             {/* RENDER LOGIC: Show Thinking OR Markdown */}
@@ -174,13 +244,93 @@ const QuickActions = ({ onAction, settings, theme, runFlashpoint, runBlueprint }
 export const Workspace = () => {
   const { messages, sendMessage, isLoading, isOllamaRunning, settings, theme, activeArtifact, closeLabBench, runFlashpoint, runBlueprint } = useLumina();
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState([]);
+  const [isDragging, setIsDragging] = useState(false);
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const dropZoneRef = useRef(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [messages, isLoading]);
   useEffect(() => { if (textareaRef.current) { textareaRef.current.style.height = 'auto'; textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 150) + 'px'; } }, [input]);
 
-  const handleSend = useCallback(() => { if (!input.trim()) return; const finalPrompt = COMMAND_REGISTRY[input.trim()] || input; sendMessage(finalPrompt); setInput(""); }, [input, sendMessage]);
+  // Handle file selection
+  const handleFileSelect = useCallback((files) => {
+    const newAttachments = Array.from(files).map(file => ({
+      file,
+      name: file.name,
+      type: file.type,
+      size: file.size
+    }));
+    setAttachments(prev => [...prev, ...newAttachments]);
+  }, []);
+
+  // Handle drag and drop
+  const handleDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.target === dropZoneRef.current) {
+      setIsDragging(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      handleFileSelect(files);
+    }
+  }, [handleFileSelect]);
+
+  const removeAttachment = useCallback((index) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const handleSend = useCallback(async () => { 
+    if (!input.trim() && attachments.length === 0) return; 
+    
+    const finalPrompt = COMMAND_REGISTRY[input.trim()] || input;
+    
+    // Convert attachments to base64 for images
+    const processedAttachments = await Promise.all(
+      attachments.map(async (att) => {
+        if (att.file.type.startsWith('image/')) {
+          return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              resolve({
+                type: 'image',
+                name: att.name,
+                data: reader.result
+              });
+            };
+            reader.readAsDataURL(att.file);
+          });
+        } else {
+          return {
+            type: 'file',
+            name: att.name,
+            data: att.file
+          };
+        }
+      })
+    );
+    
+    // Send message with attachments
+    sendMessage(finalPrompt, processedAttachments); 
+    setInput(""); 
+    setAttachments([]);
+  }, [input, attachments, sendMessage]);
+
   const handleKeyDown = useCallback((e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }, [handleSend]);
 
   if (!isOllamaRunning) {
@@ -193,7 +343,24 @@ export const Workspace = () => {
   }
 
   return (
-    <div className="flex h-full overflow-hidden bg-[#020202]/40 backdrop-blur-sm">
+    <div 
+      ref={dropZoneRef}
+      className="flex h-full overflow-hidden bg-[#020202]/40 backdrop-blur-sm relative"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 bg-blue-500/20 backdrop-blur-sm z-50 flex items-center justify-center border-4 border-dashed border-blue-500/50">
+          <div className="text-center">
+            <ImageIcon size={64} className="text-blue-400 mx-auto mb-4 animate-bounce" />
+            <p className="text-xl font-bold text-white">Drop files here</p>
+            <p className="text-sm text-gray-400 mt-2">Images and documents supported</p>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 flex flex-col min-w-0 relative h-full">
         <div className="flex-1 overflow-y-auto px-6 pb-40 custom-scrollbar scroll-smooth">
           <div className="max-w-4xl mx-auto space-y-10 pt-12">
@@ -219,9 +386,38 @@ export const Workspace = () => {
             {!isLoading && messages.length > 0 && (
               <QuickActions onAction={(cmd) => setInput(cmd)} settings={settings} theme={theme} runFlashpoint={runFlashpoint} runBlueprint={runBlueprint} />
             )}
+            
+            {/* Attachments preview */}
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 px-4 py-2 bg-[#0A0A0A]/95 backdrop-blur-2xl border border-white/10 rounded-2xl">
+                {attachments.map((att, idx) => (
+                  <AttachmentPreview 
+                    key={idx} 
+                    file={att.file} 
+                    onRemove={() => removeAttachment(idx)} 
+                  />
+                ))}
+              </div>
+            )}
+
             <div className={`relative flex items-end gap-3 bg-[#0A0A0A]/95 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-2 shadow-2xl ring-1 ring-white/5 transition-all ${isLoading ? 'ring-emerald-500/30 border-emerald-500/30' : 'focus-within:ring-indigo-500/30 focus-within:border-indigo-500/30'}`}>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*,.pdf,.doc,.docx,.txt"
+                onChange={(e) => handleFileSelect(e.target.files)}
+                className="hidden"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="mb-1 ml-1 p-2.5 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-all"
+                title="Attach files"
+              >
+                <Paperclip size={16} />
+              </button>
               <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder={`Message ${settings.developerMode ? 'Forge' : 'Nexus'}...`} className="w-full bg-transparent border-none focus:ring-0 text-white placeholder-gray-500 text-sm resize-none max-h-32 min-h-[24px] py-3 px-4 custom-scrollbar font-medium outline-none" rows={1} />
-              <button onClick={handleSend} disabled={isLoading || !input.trim()} className={`mb-1 mr-1 p-2.5 rounded-full bg-white text-black ${theme.hoverBg} disabled:opacity-50 disabled:bg-gray-800 disabled:text-gray-600 transition-all shadow-lg shadow-white/5`}>{isLoading ? <StopCircle size={16} /> : <ArrowUp size={16} />}</button>
+              <button onClick={handleSend} disabled={isLoading || (!input.trim() && attachments.length === 0)} className={`mb-1 mr-1 p-2.5 rounded-full bg-white text-black ${theme.hoverBg} disabled:opacity-50 disabled:bg-gray-800 disabled:text-gray-600 transition-all shadow-lg shadow-white/5`}>{isLoading ? <StopCircle size={16} /> : <ArrowUp size={16} />}</button>
             </div>
             <div className="text-center flex items-center justify-center gap-2 opacity-30 hover:opacity-100 transition-opacity duration-500"><div className={`w-2 h-2 rounded-full ${isLoading ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'}`}/><span className="text-[9px] text-gray-600 uppercase tracking-[0.2em] font-medium">OmniLab {settings.developerMode ? 'Forge' : 'Nexus'} OS</span></div>
           </div>

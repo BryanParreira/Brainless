@@ -6,7 +6,11 @@ const LuminaContext = createContext();
 const messagesReducer = (state, action) => {
   switch (action.type) {
     case 'ADD_USER_MESSAGE':
-      return [...state, { role: 'user', content: action.payload }];
+      return [...state, { 
+        role: 'user', 
+        content: action.payload.text,
+        attachments: action.payload.attachments || []
+      }];
     case 'ADD_ASSISTANT_MESSAGE':
       return [...state, { role: 'assistant', content: '' }];
     case 'APPEND_TO_LAST':
@@ -267,22 +271,70 @@ export const LuminaProvider = ({ children }) => {
     }
   }, []);
 
-  // --- CHAT ACTIONS ---
-  const sendMessage = useCallback((text) => {
-    if (!text.trim() || isLoading || !currentModel) return;
-    messagesDispatch({ type: 'ADD_USER_MESSAGE', payload: text });
+  // --- CHAT ACTIONS (UPDATED WITH MULTIMODAL SUPPORT) ---
+  const sendMessage = useCallback(async (text, attachments = []) => {
+    if ((!text.trim() && attachments.length === 0) || isLoading || !currentModel) return;
+
+    // 1. Process attachments to extract images and document context
+    let images = [];
+    let documentContext = "";
+
+    for (const att of attachments) {
+      if (att.type === 'image') {
+        // Image is already base64 from Workspace component
+        // Remove the data:image/...;base64, prefix for Ollama
+        const base64Data = att.data.split(',')[1];
+        images.push(base64Data);
+      } else if (att.type === 'file') {
+        // For text files, we can read them directly
+        // For now, we'll just note that a file was attached
+        documentContext += `\n--- UPLOADED FILE: ${att.name} ---\n`;
+        // TODO: Add file text extraction when needed
+      }
+    }
+
+    // 2. Add user message to chat (with attachments for display)
+    messagesDispatch({ 
+      type: 'ADD_USER_MESSAGE', 
+      payload: { 
+        text, 
+        attachments 
+      } 
+    });
+
+    // 3. Add empty assistant message
     messagesDispatch({ type: 'ADD_ASSISTANT_MESSAGE' });
     setIsLoading(true);
+
+    // 4. Get project context
     let contextFiles = [];
     let systemPrompt = settings.systemPrompt;
     let pid = null;
+    
     if (activeProject) {
       pid = activeProject.id;
       const liveProject = projects.find(p => p.id === activeProject.id);
       contextFiles = liveProject ? liveProject.files : activeProject.files || [];
       systemPrompt = liveProject?.systemPrompt || settings.systemPrompt;
     }
-    window.lumina.sendPrompt(text, currentModel, contextFiles, systemPrompt, settings, pid);
+
+    // 5. Build enriched prompt with document context
+    let enrichedPrompt = text;
+    if (documentContext) {
+      enrichedPrompt = `${documentContext}\n\nUSER QUESTION: ${text}`;
+    }
+
+    // 6. Send to Ollama with images and context
+    window.lumina.sendPrompt(
+      enrichedPrompt,
+      currentModel,
+      contextFiles,
+      systemPrompt,
+      settings,
+      pid,
+      images, // NEW: Images for vision models (llava, bakllava, etc.)
+      documentContext // NEW: Document text context
+    );
   }, [isLoading, currentModel, activeProject, projects, settings]);
 
   const startNewChat = useCallback(async () => {
@@ -352,6 +404,15 @@ export const LuminaProvider = ({ children }) => {
       });
     }
   }, [activeProject, projects, addToUndoHistory]);
+
+  const loadProjects = useCallback(async () => {
+    try {
+      const updatedProjects = await window.lumina.getProjects();
+      setProjects(updatedProjects);
+    } catch (e) {
+      console.error('Load projects failed:', e);
+    }
+  }, []);
 
   const updateProjectSettings = useCallback(async (sysPrompt) => {
     if (!activeProject) return;
@@ -542,7 +603,13 @@ export const LuminaProvider = ({ children }) => {
     }
     const context = messages.slice(-6).map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n').slice(0, 4000) || "General Knowledge";
     setIsLoading(true);
-    messagesDispatch({ type: 'ADD_USER_MESSAGE', payload: 'Generate a flashcard deck from our current study session.' });
+    messagesDispatch({ 
+      type: 'ADD_USER_MESSAGE', 
+      payload: { 
+        text: 'Generate a flashcard deck from our current study session.',
+        attachments: []
+      } 
+    });
     try {
       const prompt = `CONTEXT:\n${context}\nTASK: Generate 8-10 concise study flashcards. Return ONLY valid JSON: { "cards": [{ "front": "Question", "back": "Answer" }] }`;
       const response = await window.lumina.generateJson(prompt, currentModel, settings);
@@ -565,7 +632,13 @@ export const LuminaProvider = ({ children }) => {
   const runBlueprint = useCallback(async (description) => {
     if (!activeProject || !currentModel) return;
     setIsLoading(true);
-    messagesDispatch({ type: 'ADD_USER_MESSAGE', payload: `Blueprint: ${description}` });
+    messagesDispatch({ 
+      type: 'ADD_USER_MESSAGE', 
+      payload: { 
+        text: `Blueprint: ${description}`,
+        attachments: []
+      } 
+    });
     try {
       const prompt = `Output JSON with "files" key for: ${description}.`;
       const response = await window.lumina.generateJson(prompt, currentModel, settings);
@@ -593,12 +666,18 @@ export const LuminaProvider = ({ children }) => {
   const runDiffDoctor = useCallback(async () => {
     if (!activeProject || !gitStatus || gitStatus.clean) return;
     setIsLoading(true);
-    messagesDispatch({ type: 'ADD_USER_MESSAGE', payload: 'Run Diff Doctor.' });
+    messagesDispatch({ 
+      type: 'ADD_USER_MESSAGE', 
+      payload: { 
+        text: 'Run Diff Doctor.',
+        attachments: []
+      } 
+    });
     try {
       const diff = await window.lumina.getGitDiff(activeProject.id);
       if (!diff) throw new Error("No diff");
       const prompt = `Analyze git diff. Write commit message and check bugs.\n\n${diff.slice(0, 5000)}`;
-      window.lumina.sendPrompt(prompt, currentModel, [], activeProject.systemPrompt, settings);
+      window.lumina.sendPrompt(prompt, currentModel, [], activeProject.systemPrompt, settings, null, [], "");
     } catch (e) {
       setIsLoading(false);
     }
@@ -608,7 +687,13 @@ export const LuminaProvider = ({ children }) => {
     if (!activeProject) return;
     setIsLoading(true);
     try {
-      messagesDispatch({ type: 'ADD_USER_MESSAGE', payload: `Deep Research: ${url}` });
+      messagesDispatch({ 
+        type: 'ADD_USER_MESSAGE', 
+        payload: { 
+          text: `Deep Research: ${url}`,
+          attachments: []
+        } 
+      });
       messagesDispatch({ type: 'ADD_ASSISTANT_MESSAGE' });
       const rawContent = await window.lumina.runDeepResearch(activeProject.id, url);
       const updatedProjects = await window.lumina.getProjects();
@@ -616,7 +701,7 @@ export const LuminaProvider = ({ children }) => {
       const updatedProject = updatedProjects.find(p => p.id === activeProject.id);
       if (updatedProject) setActiveProject(updatedProject);
       const prompt = `Analyze this content and report.\n\nCONTENT:\n${rawContent}`;
-      window.lumina.sendPrompt(prompt, currentModel, [], activeProject.systemPrompt, settings);
+      window.lumina.sendPrompt(prompt, currentModel, [], activeProject.systemPrompt, settings, null, [], "");
     } catch (e) {
       messagesDispatch({ type: 'APPEND_TO_LAST', payload: `\n\n**Error:** ${e.message}` });
       setIsLoading(false);
@@ -695,6 +780,7 @@ export const LuminaProvider = ({ children }) => {
     openFile,
     deleteFile,
     generateDossier,
+    loadProjects,
 
     // Canvas
     canvasNodes,
@@ -786,6 +872,7 @@ export const LuminaProvider = ({ children }) => {
     openFile,
     deleteFile,
     generateDossier,
+    loadProjects,
     canvasNodes,
     addCanvasNode,
     updateCanvasNode,

@@ -4,7 +4,7 @@ import {
   X, Save, Server, Cpu, Brain, Sliders, Monitor, Type, Database, 
   Terminal, BookOpen, Shield, Zap, Check, ChevronDown, RefreshCw, 
   Sparkles, Info, Github, Bug, FileText, ExternalLink, Download, CheckCircle, Loader2,
-  Trash2, MessageSquare, HardDrive, AlertTriangle, Calendar, Key, Eye, EyeOff, Link as LinkIcon
+  Trash2, MessageSquare, HardDrive, AlertTriangle, Calendar
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -18,6 +18,8 @@ const getTheme = (isDev) => ({
   border: isDev ? 'focus:border-rose-500/50 focus:ring-rose-500/20' : 'focus:border-indigo-500/50 focus:ring-indigo-500/20',
   glow: isDev ? 'shadow-rose-500/20' : 'shadow-indigo-500/20',
   gradient: isDev ? 'from-rose-600 to-orange-600' : 'from-indigo-600 to-violet-600',
+  softBg: isDev ? 'bg-rose-500/5' : 'bg-indigo-500/5',
+  softBorder: isDev ? 'border-rose-500/20' : 'border-indigo-500/20',
 });
 
 const NavButton = React.memo(({ active, onClick, icon: Icon, label, desc, theme }) => (
@@ -184,15 +186,6 @@ export const Settings = ({ isOpen, onClose }) => {
   const [updateMessage, setUpdateMessage] = useState('');
   const [downloadProgress, setDownloadProgress] = useState(0);
 
-  // GOOGLE CALENDAR STATE
-  const [gcalClientId, setGcalClientId] = useState('');
-  const [gcalClientSecret, setGcalClientSecret] = useState('');
-  const [gcalShowSecret, setGcalShowSecret] = useState(false);
-  const [gcalSaving, setGcalSaving] = useState(false);
-  const [gcalHasCredentials, setGcalHasCredentials] = useState(false);
-  const [gcalStatus, setGcalStatus] = useState('');
-  const [gcalIsConnected, setGcalIsConnected] = useState(false);
-
   const localTheme = useMemo(() => getTheme(form.developerMode), [form.developerMode]);
 
   useEffect(() => { setForm(settings); setHasChanges(false); }, [settings]);
@@ -224,25 +217,6 @@ export const Settings = ({ isOpen, onClose }) => {
       checkOllamaHealth(form.ollamaUrl);
   }, [form.ollamaUrl, checkOllamaHealth]);
 
-  // Load Google Calendar credentials status
-  useEffect(() => {
-    const loadGcalStatus = async () => {
-      try {
-        const creds = await window.lumina.getGoogleCredentials();
-        setGcalHasCredentials(creds.hasCredentials);
-        
-        const status = await window.lumina.checkGoogleCalendarStatus();
-        setGcalIsConnected(status.connected);
-      } catch (err) {
-        console.error('Failed to load Google Calendar status:', err);
-      }
-    };
-    
-    if (isOpen && activeTab === 'calendar') {
-      loadGcalStatus();
-    }
-  }, [isOpen, activeTab]);
-
   const handleFormChange = useCallback((updates) => {
     setForm(prev => ({ ...prev, ...updates }));
     setHasChanges(true);
@@ -268,49 +242,6 @@ export const Settings = ({ isOpen, onClose }) => {
     await refreshModels();
     setTimeout(() => setIsRefreshing(false), 800);
   }, [refreshModels]);
-
-  // Google Calendar credential management
-  const handleSaveGcalCredentials = async () => {
-    if (!gcalClientId.trim() || !gcalClientSecret.trim()) {
-      setGcalStatus('Please enter both Client ID and Client Secret');
-      return;
-    }
-
-    setGcalSaving(true);
-    setGcalStatus('');
-    
-    try {
-      const result = await window.lumina.saveGoogleCredentials(gcalClientId.trim(), gcalClientSecret.trim());
-      
-      if (result.success) {
-        setGcalStatus('✅ Credentials saved! Go to Chronos to connect.');
-        setGcalHasCredentials(true);
-        setGcalClientId('');
-        setGcalClientSecret('');
-        setTimeout(() => setGcalStatus(''), 3000);
-      } else {
-        setGcalStatus('❌ Failed: ' + result.error);
-      }
-    } catch (err) {
-      setGcalStatus('❌ Error saving credentials');
-    } finally {
-      setGcalSaving(false);
-    }
-  };
-
-  const handleClearGcalCredentials = async () => {
-    if (confirm('This will remove your Google Calendar credentials and disconnect. Continue?')) {
-      try {
-        await window.lumina.clearGoogleCredentials();
-        setGcalHasCredentials(false);
-        setGcalIsConnected(false);
-        setGcalStatus('Credentials cleared');
-        setTimeout(() => setGcalStatus(''), 3000);
-      } catch (err) {
-        setGcalStatus('❌ Error clearing credentials');
-      }
-    }
-  };
 
   const handleReset = useCallback(async (type) => {
     let keyword = '';
@@ -426,7 +357,6 @@ export const Settings = ({ isOpen, onClose }) => {
           <div className="w-64 border-r border-white/5 bg-[#020202]/50 backdrop-blur-sm p-4 flex flex-col gap-2">
             <NavButton active={activeTab === 'capabilities'} onClick={() => setActiveTab('capabilities')} icon={Terminal} label="Capabilities" desc="Modes & Personas" theme={localTheme} />
             <NavButton active={activeTab === 'neural'} onClick={() => setActiveTab('neural')} icon={Brain} label="Neural Engine" desc="LLM & Connection" theme={localTheme} />
-            <NavButton active={activeTab === 'calendar'} onClick={() => setActiveTab('calendar')} icon={Calendar} label="Google Calendar" desc="Sync Configuration" theme={localTheme} />
             <NavButton active={activeTab === 'interface'} onClick={() => setActiveTab('interface')} icon={Monitor} label="Interface" desc="Visuals & Layout" theme={localTheme} />
             <NavButton active={activeTab === 'data'} onClick={() => setActiveTab('data')} icon={Database} label="Data Management" desc="Storage & Reset" theme={localTheme} />
             <div className="flex-1"></div>
@@ -503,199 +433,62 @@ export const Settings = ({ isOpen, onClose }) => {
                       <InputGroup label={`Temperature: ${form.temperature.toFixed(1)}`} desc="Creativity vs Precision balance.">
                           <input type="range" min="0" max="1" step="0.1" value={form.temperature} onChange={(e) => handleFormChange({ temperature: parseFloat(e.target.value) })} className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer slider-thumb" />
                       </InputGroup>
-                    </Section>
-                  </div>
-                )}
-
-                {activeTab === 'calendar' && (
-                  <div className="space-y-8">
-                    {/* Header */}
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-lg font-bold text-white mb-2">Google Calendar Integration</h3>
-                        <p className="text-sm text-gray-400">Sync your OmniLab calendar with Google Calendar</p>
-                      </div>
-                      {gcalIsConnected && (
-                        <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500/10 border border-green-500/30 rounded-lg">
-                          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                          <span className="text-xs font-bold text-green-400">Connected</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Setup Instructions */}
-                    {!gcalHasCredentials && (
-                      <Section title="Setup Required" icon={Key} theme={localTheme}>
-                        <div className="p-6 bg-blue-500/10 border border-blue-500/30 rounded-xl">
-                          <div className="flex items-start gap-4 mb-4">
-                            <div className="w-12 h-12 rounded-xl bg-blue-500/20 flex items-center justify-center flex-shrink-0">
-                              <Sparkles size={24} className="text-blue-400" />
-                            </div>
-                            <div className="flex-1">
-                              <h4 className="text-base font-bold text-white mb-2">Quick 3-Minute Setup</h4>
-                              <p className="text-sm text-blue-200/80 leading-relaxed">
-                                To sync with Google Calendar, you need OAuth credentials from Google Cloud Console. Don't worry - we'll guide you!
-                              </p>
-                            </div>
+                      <InputGroup label={`Context Length: ${form.contextLength.toLocaleString()}`} desc="Maximum tokens for model context window.">
+                          <div className="flex items-center gap-6 pt-2">
+                            <span className="text-xs text-gray-500 font-mono">2K</span>
+                            <input type="range" min="2048" max="131072" step="2048" value={form.contextLength} onChange={(e) => handleFormChange({ contextLength: parseInt(e.target.value) })} className="flex-1 h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer slider-thumb" />
+                            <span className="text-xs text-white font-mono">128K</span>
                           </div>
-
-                          <div className="space-y-3 text-xs text-blue-200/70">
-                            <div className="flex items-start gap-3">
-                              <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                <span className="text-xs font-bold text-blue-400">1</span>
-                              </div>
-                              <div>
-                                <p className="font-medium text-white mb-0.5">Create Google Cloud Project</p>
-                                <p className="text-blue-300/70">Visit console.cloud.google.com → New Project → Name it "OmniLab"</p>
-                              </div>
-                            </div>
-
-                            <div className="flex items-start gap-3">
-                              <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                <span className="text-xs font-bold text-blue-400">2</span>
-                              </div>
-                              <div>
-                                <p className="font-medium text-white mb-0.5">Enable Calendar API</p>
-                                <p className="text-blue-300/70">APIs & Services → Library → Search "Calendar API" → Enable</p>
-                              </div>
-                            </div>
-
-                            <div className="flex items-start gap-3">
-                              <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                <span className="text-xs font-bold text-blue-400">3</span>
-                              </div>
-                              <div>
-                                <p className="font-medium text-white mb-0.5">Create OAuth Credentials</p>
-                                <p className="text-blue-300/70">Credentials → Create → OAuth Client ID → Desktop App</p>
-                              </div>
-                            </div>
-
-                            <div className="flex items-start gap-3">
-                              <div className="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                <span className="text-xs font-bold text-green-400">4</span>
-                              </div>
-                              <div>
-                                <p className="font-medium text-white mb-0.5">Copy & Paste Below</p>
-                                <p className="text-blue-300/70">Copy your Client ID and Client Secret</p>
-                              </div>
-                            </div>
-                          </div>
-
-                          <button
-                            onClick={() => openLink('https://console.cloud.google.com/apis/credentials')}
-                            className="w-full mt-4 px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-                          >
-                            <ExternalLink size={16} />
-                            <span>Open Google Cloud Console</span>
-                          </button>
-                        </div>
-                      </Section>
-                    )}
-
-                    {/* Credentials Input */}
-                    <Section title="OAuth Credentials" icon={Shield} theme={localTheme}>
-                      <div className="p-6 bg-[#0F0F0F] border border-white/10 rounded-xl space-y-4">
-                        {gcalHasCredentials && (
-                          <div className="flex items-center justify-between p-3 bg-green-500/10 border border-green-500/30 rounded-lg mb-4">
-                            <div className="flex items-center gap-2">
-                              <CheckCircle size={16} className="text-green-400" />
-                              <span className="text-sm font-medium text-green-400">Credentials Configured</span>
-                            </div>
-                            <button
-                              onClick={handleClearGcalCredentials}
-                              className="px-3 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5"
-                            >
-                              <Trash2 size={12} />
-                              <span>Clear</span>
-                            </button>
-                          </div>
-                        )}
-
-                        <InputGroup label="Client ID">
-                          <input
-                            type="text"
-                            value={gcalClientId}
-                            onChange={(e) => setGcalClientId(e.target.value)}
-                            placeholder="123456789-abc123.apps.googleusercontent.com"
-                            className="w-full px-4 py-3 bg-black/50 border border-white/10 focus:border-blue-500/50 rounded-lg text-white text-sm placeholder-white/30 focus:outline-none transition-colors"
-                            disabled={gcalHasCredentials}
-                          />
-                        </InputGroup>
-
-                        <InputGroup label="Client Secret">
-                          <div className="relative">
-                            <input
-                              type={gcalShowSecret ? 'text' : 'password'}
-                              value={gcalClientSecret}
-                              onChange={(e) => setGcalClientSecret(e.target.value)}
-                              placeholder="GOCSPX-abc123def456"
-                              className="w-full px-4 py-3 pr-12 bg-black/50 border border-white/10 focus:border-blue-500/50 rounded-lg text-white text-sm placeholder-white/30 focus:outline-none transition-colors"
-                              disabled={gcalHasCredentials}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setGcalShowSecret(!gcalShowSecret)}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/80 transition-colors"
-                              disabled={gcalHasCredentials}
-                            >
-                              {gcalShowSecret ? <EyeOff size={16} /> : <Eye size={16} />}
-                            </button>
-                          </div>
-                        </InputGroup>
-
-                        {gcalStatus && (
-                          <div className={`p-3 rounded-lg text-sm ${gcalStatus.startsWith('✅') ? 'bg-green-500/10 text-green-400 border border-green-500/30' : 'bg-red-500/10 text-red-400 border border-red-500/30'}`}>
-                            {gcalStatus}
-                          </div>
-                        )}
-
-                        {!gcalHasCredentials && (
-                          <button
-                            onClick={handleSaveGcalCredentials}
-                            disabled={gcalSaving || !gcalClientId.trim() || !gcalClientSecret.trim()}
-                            className="w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 disabled:from-gray-600 disabled:to-gray-600 text-white rounded-lg font-medium transition-all disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                          >
-                            {gcalSaving ? (
-                              <>
-                                <Loader2 size={16} className="animate-spin" />
-                                <span>Saving...</span>
-                              </>
-                            ) : (
-                              <>
-                                <Shield size={16} />
-                                <span>Save Credentials</span>
-                              </>
-                            )}
-                          </button>
-                        )}
-
-                        <div className="flex items-start gap-2 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                          <Shield size={14} className="text-yellow-400 mt-0.5 flex-shrink-0" />
-                          <p className="text-xs text-yellow-300/90 leading-relaxed">
-                            Your credentials are stored encrypted locally on your device and never leave your computer.
-                          </p>
-                        </div>
-
-                        {gcalHasCredentials && (
-                          <div className="pt-4 border-t border-white/10">
-                            <p className="text-sm text-gray-400 mb-2">
-                              ✅ Ready to connect! Go to <strong className="text-white">Chronos</strong> and click the <strong className="text-blue-400">Google Calendar</strong> button in the header.
-                            </p>
-                          </div>
-                        )}
-                      </div>
+                      </InputGroup>
                     </Section>
                   </div>
                 )}
 
                 {activeTab === 'interface' && (
                   <div className="space-y-8">
-                    <Section title="Appearance" icon={Type} theme={localTheme}>
-                      <InputGroup label={`Font Size: ${form.fontSize || 14}px`} desc="Adjust text size for better readability.">
+                    <Section title="Typography" icon={Type} theme={localTheme}>
+                      <InputGroup label={`Font Size: ${form.fontSize || 14}px`} desc="Adjust text size for better readability across all modules.">
                         <div className="flex items-center gap-6 pt-2">
                           <span className="text-xs text-gray-500 font-bold">Aa</span>
                           <input type="range" min="12" max="20" step="1" value={form.fontSize || 14} onChange={(e) => handleFormChange({ fontSize: parseInt(e.target.value) })} className="flex-1 h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer slider-thumb" />
                           <span className="text-lg text-white font-bold">Aa</span>
+                        </div>
+                      </InputGroup>
+                    </Section>
+
+                    <Section title="Chat Display" icon={MessageSquare} theme={localTheme}>
+                      <InputGroup label="Message Density" desc="Control spacing between chat messages.">
+                        <div className="grid grid-cols-3 gap-3">
+                          <button
+                            onClick={() => handleFormChange({ chatDensity: 'compact' })}
+                            className={`p-4 rounded-xl border text-center text-xs font-medium transition-all ${
+                              form.chatDensity === 'compact'
+                                ? `${localTheme.softBg} ${localTheme.softBorder} ${localTheme.accent} border-2`
+                                : 'bg-[#0A0A0A] border-white/10 text-gray-400 hover:border-white/20'
+                            }`}
+                          >
+                            Compact
+                          </button>
+                          <button
+                            onClick={() => handleFormChange({ chatDensity: 'comfortable' })}
+                            className={`p-4 rounded-xl border text-center text-xs font-medium transition-all ${
+                              form.chatDensity === 'comfortable'
+                                ? `${localTheme.softBg} ${localTheme.softBorder} ${localTheme.accent} border-2`
+                                : 'bg-[#0A0A0A] border-white/10 text-gray-400 hover:border-white/20'
+                            }`}
+                          >
+                            Comfortable
+                          </button>
+                          <button
+                            onClick={() => handleFormChange({ chatDensity: 'spacious' })}
+                            className={`p-4 rounded-xl border text-center text-xs font-medium transition-all ${
+                              form.chatDensity === 'spacious'
+                                ? `${localTheme.softBg} ${localTheme.softBorder} ${localTheme.accent} border-2`
+                                : 'bg-[#0A0A0A] border-white/10 text-gray-400 hover:border-white/20'
+                            }`}
+                          >
+                            Spacious
+                          </button>
                         </div>
                       </InputGroup>
                     </Section>
@@ -705,16 +498,22 @@ export const Settings = ({ isOpen, onClose }) => {
                 {activeTab === 'data' && (
                   <div className="space-y-8">
                     <Section title="Storage Management" icon={HardDrive} theme={localTheme}>
-                      <InputGroup label="Delete Specific Data" desc="Perform non-destructive cleanup actions.">
+                      <InputGroup label="Delete Specific Data" desc="Perform targeted cleanup without affecting other data.">
                         <div className="grid grid-cols-3 gap-3">
-                           <button onClick={() => handleReset('chats')} className="flex flex-col items-center justify-center p-4 bg-[#0A0A0A] border border-white/10 rounded-xl text-xs text-red-400 hover:bg-white/5 transition-all">
-                              <MessageSquare size={20} /> <span className="mt-1">Chats</span>
+                           <button onClick={() => handleReset('chats')} className="flex flex-col items-center justify-center gap-2 p-6 bg-[#0A0A0A] border border-white/10 rounded-xl text-xs text-gray-400 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/5 transition-all group">
+                              <MessageSquare size={24} className="group-hover:scale-110 transition-transform" />
+                              <span className="font-medium">Chats</span>
+                              <span className="text-[10px] text-gray-600">Sessions only</span>
                            </button>
-                           <button onClick={() => handleReset('cache')} className="flex flex-col items-center justify-center p-4 bg-[#0A0A0A] border border-white/10 rounded-xl text-xs text-red-400 hover:bg-white/5 transition-all">
-                              <HardDrive size={20} /> <span className="mt-1">Research Cache</span>
+                           <button onClick={() => handleReset('cache')} className="flex flex-col items-center justify-center gap-2 p-6 bg-[#0A0A0A] border border-white/10 rounded-xl text-xs text-gray-400 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/5 transition-all group">
+                              <HardDrive size={24} className="group-hover:scale-110 transition-transform" />
+                              <span className="font-medium">Cache</span>
+                              <span className="text-[10px] text-gray-600">Web research</span>
                            </button>
-                           <button onClick={() => handleReset('calendar')} className="flex flex-col items-center justify-center p-4 bg-[#0A0A0A] border border-white/10 rounded-xl text-xs text-red-400 hover:bg-white/5 transition-all">
-                              <Calendar size={20} /> <span className="mt-1">Calendar</span>
+                           <button onClick={() => handleReset('calendar')} className="flex flex-col items-center justify-center gap-2 p-6 bg-[#0A0A0A] border border-white/10 rounded-xl text-xs text-gray-400 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/5 transition-all group">
+                              <Calendar size={24} className="group-hover:scale-110 transition-transform" />
+                              <span className="font-medium">Calendar</span>
+                              <span className="text-[10px] text-gray-600">Events only</span>
                            </button>
                         </div>
                       </InputGroup>
@@ -722,9 +521,16 @@ export const Settings = ({ isOpen, onClose }) => {
                     
                     <Section title="Danger Zone" icon={Shield} theme={localTheme}>
                       <div className="p-6 border-2 border-red-500/30 bg-red-500/5 rounded-2xl">
-                         <h4 className="text-red-400 font-bold text-sm mb-1.5">Factory Reset</h4>
-                         <p className="text-red-400/70 text-xs leading-relaxed mb-4">Permanently delete all data (Chats, Projects, Cache, Settings).</p>
-                         <button onClick={() => handleReset('factory')} className="px-6 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border-2 border-red-500/30 rounded-xl text-xs font-bold transition-all">Reset System</button>
+                         <div className="flex items-start gap-4 mb-4">
+                           <div className="p-3 rounded-xl bg-red-500/10 text-red-400">
+                             <AlertTriangle size={24} />
+                           </div>
+                           <div>
+                             <h4 className="text-red-400 font-bold text-sm mb-1.5">Factory Reset</h4>
+                             <p className="text-red-400/70 text-xs leading-relaxed">Permanently delete all data including chats, projects, cache, calendar, and settings. This action is irreversible.</p>
+                           </div>
+                         </div>
+                         <button onClick={() => handleReset('factory')} className="w-full px-6 py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 border-2 border-red-500/30 rounded-xl text-sm font-bold transition-all hover:scale-[1.02]">Reset System</button>
                       </div>
                     </Section>
                   </div>
@@ -732,12 +538,15 @@ export const Settings = ({ isOpen, onClose }) => {
 
                 {activeTab === 'about' && (
                   <div className="space-y-8">
-                    <div className="flex flex-col items-center justify-center p-8 text-center bg-white/5 rounded-2xl border border-white/5 mb-8">
-                       <div className={`p-4 rounded-2xl bg-gradient-to-br ${localTheme.gradient} shadow-2xl mb-4`}>
+                    <div className="flex flex-col items-center justify-center p-8 text-center bg-gradient-to-br from-white/5 to-transparent rounded-2xl border border-white/5 mb-8">
+                       <div className={`p-4 rounded-2xl bg-gradient-to-br ${localTheme.gradient} shadow-2xl ${localTheme.glow} mb-4`}>
                           <Brain size={40} className="text-white" />
                        </div>
                        <h3 className="text-2xl font-bold text-white tracking-tight">OmniLab</h3>
                        <p className="text-sm text-gray-500 font-mono mt-1">v1.0.0 • {form.developerMode ? 'Forge' : 'Nexus'} Build</p>
+                       <p className="text-xs text-gray-600 mt-3 max-w-md">
+                         A powerful AI-native workspace combining research, development, and productivity tools in one unified experience.
+                       </p>
                     </div>
 
                     <Section title="Software Update" icon={RefreshCw} theme={localTheme}>
@@ -766,7 +575,7 @@ export const Settings = ({ isOpen, onClose }) => {
                                <button 
                                  onClick={checkForUpdates}
                                  disabled={updateStatus === 'checking'}
-                                 className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${updateStatus === 'checking' ? 'bg-white/5 text-gray-500' : 'bg-white/10 hover:bg-white/20 text-white'}`}
+                                 className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${updateStatus === 'checking' ? 'bg-white/5 text-gray-500' : 'bg-white/10 hover:bg-white/20 text-white'}`}
                                >
                                  {updateStatus === 'checking' && <Loader2 size={12} className="animate-spin" />}
                                  {updateStatus === 'checking' ? 'Checking...' : 'Check for Updates'}
@@ -776,14 +585,14 @@ export const Settings = ({ isOpen, onClose }) => {
                              {updateStatus === 'available' && (
                                <button 
                                  onClick={startDownload}
-                                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r ${localTheme.gradient} shadow-lg hover:brightness-110 active:scale-95 transition-all`}
+                                 className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r ${localTheme.gradient} shadow-lg hover:brightness-110 active:scale-95 transition-all`}
                                >
                                  <Download size={14} /> Download Update
                                </button>
                              )}
 
                              {updateStatus === 'downloading' && (
-                               <button disabled className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-gray-400 bg-white/5 border border-white/5 cursor-not-allowed">
+                               <button disabled className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-gray-400 bg-white/5 border border-white/5 cursor-not-allowed">
                                  <Loader2 size={14} className="animate-spin text-blue-400" /> Downloading...
                                </button>
                              )}
@@ -791,7 +600,7 @@ export const Settings = ({ isOpen, onClose }) => {
                              {updateStatus === 'downloaded' && (
                                <button 
                                  onClick={installUpdate}
-                                 className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-green-600 hover:bg-green-500 shadow-lg animate-pulse"
+                                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-green-600 hover:bg-green-500 shadow-lg animate-pulse"
                                >
                                  <CheckCircle size={14} /> Restart & Install
                                </button>
@@ -802,17 +611,17 @@ export const Settings = ({ isOpen, onClose }) => {
 
                     <Section title="Community & Support" icon={Github} theme={localTheme}>
                        <div className="grid grid-cols-2 gap-4">
-                          <button onClick={() => openLink(`${REPO_URL}#readme`)} className="flex items-center gap-3 p-4 rounded-xl bg-[#0A0A0A] border border-white/10 hover:bg-white/5 transition-all text-left group">
-                             <div className="p-2 bg-blue-500/10 rounded-lg text-blue-400"><FileText size={20}/></div>
-                             <div>
+                          <button onClick={() => openLink(`${REPO_URL}#readme`)} className="flex items-center gap-3 p-4 rounded-xl bg-[#0A0A0A] border border-white/10 hover:bg-white/5 hover:border-white/20 transition-all text-left group">
+                             <div className={`p-2.5 rounded-lg ${localTheme.softBg} ${localTheme.accent}`}><FileText size={20}/></div>
+                             <div className="flex-1">
                                 <div className="text-sm font-bold text-white group-hover:text-blue-400 transition-colors flex items-center gap-2">Documentation <ExternalLink size={10} /></div>
                                 <div className="text-[10px] text-gray-500">Read the manual</div>
                              </div>
                           </button>
 
-                          <button onClick={() => openLink(`${REPO_URL}/issues`)} className="flex items-center gap-3 p-4 rounded-xl bg-[#0A0A0A] border border-white/10 hover:bg-white/5 transition-all text-left group">
-                             <div className="p-2 bg-orange-500/10 rounded-lg text-orange-400"><Bug size={20}/></div>
-                             <div>
+                          <button onClick={() => openLink(`${REPO_URL}/issues`)} className="flex items-center gap-3 p-4 rounded-xl bg-[#0A0A0A] border border-white/10 hover:bg-white/5 hover:border-white/20 transition-all text-left group">
+                             <div className={`p-2.5 rounded-lg bg-orange-500/10 text-orange-400`}><Bug size={20}/></div>
+                             <div className="flex-1">
                                 <div className="text-sm font-bold text-white group-hover:text-orange-400 transition-colors flex items-center gap-2">Report Issue <ExternalLink size={10} /></div>
                                 <div className="text-[10px] text-gray-500">Found a bug?</div>
                              </div>
@@ -832,11 +641,11 @@ export const Settings = ({ isOpen, onClose }) => {
           </div>
         </div>
 
-        <div className="p-6 border-t border-white/5 bg-[#020202]/80 backdrop-blur-sm flex justify-between items-center">
+        <div className="p-6 border-t border-white/5 bg-[#020202]/80 backdrop-blur-sm flex justify-between items-center relative z-10">
            <div className="text-[10px] text-gray-600 font-mono">v1.0.0-OmniLab</div>
            <div className="flex gap-3">
              <button onClick={handleClose} className="px-6 py-2.5 text-gray-400 hover:text-white text-xs font-medium transition-colors rounded-xl hover:bg-white/5">{hasChanges ? 'Discard' : 'Close'}</button>
-             <button onClick={handleSave} disabled={!hasChanges} className={`px-8 py-2.5 rounded-xl text-xs font-bold text-white shadow-lg transition-all flex items-center gap-2 ${hasChanges ? `bg-gradient-to-r ${localTheme.gradient}` : 'bg-gray-700 opacity-50 cursor-not-allowed'}`}><Save size={14} /> Save Changes</button>
+             <button onClick={handleSave} disabled={!hasChanges} className={`px-8 py-2.5 rounded-xl text-xs font-bold text-white shadow-lg transition-all flex items-center gap-2 ${hasChanges ? `bg-gradient-to-r ${localTheme.gradient} hover:brightness-110` : 'bg-gray-700 opacity-50 cursor-not-allowed'}`}><Save size={14} /> Save Changes</button>
            </div>
         </div>
       </motion.div>
