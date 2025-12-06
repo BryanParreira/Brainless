@@ -43,25 +43,6 @@ const StatCard = ({ icon: Icon, label, value, trend, onClick, theme }) => (
   </motion.div>
 );
 
-// --- INTEGRATION ACTION CARD ---
-const IntegrationCard = ({ icon: Icon, title, description, onClick, theme }) => (
-  <motion.button
-    whileHover={{ scale: 1.01, x: 2 }}
-    whileTap={{ scale: 0.99 }}
-    onClick={onClick}
-    className="flex items-center gap-4 p-4 rounded-xl bg-[#0A0A0A] border border-white/10 hover:border-white/20 transition-all text-left group"
-  >
-    <div className={`p-3 rounded-lg ${theme.softBg} shrink-0`}>
-      <Icon size={20} className={theme.accentText} />
-    </div>
-    <div className="flex-1 min-w-0">
-      <div className="text-sm font-bold text-white mb-0.5">{title}</div>
-      <div className="text-xs text-gray-500 leading-relaxed">{description}</div>
-    </div>
-    <ChevronRight size={16} className="text-gray-600 group-hover:text-white transition-colors shrink-0" />
-  </motion.button>
-);
-
 // --- TODAY'S EVENT ITEM ---
 const EventItem = ({ event, index }) => (
   <motion.div
@@ -125,9 +106,6 @@ export const DailyDashboard = () => {
     canvasNodes,
     setCurrentView,
     theme,
-    addEvent,
-    addCanvasNode,
-    createProject,
     settings
   } = useLumina();
 
@@ -305,121 +283,143 @@ export const DailyDashboard = () => {
           </div>
         </div>
 
-        {/* Cross-Feature Integration Section */}
+        {/* Quick Launch Pad */}
         <div className="space-y-4">
           <div className="flex items-center gap-3">
             <Zap size={18} className={theme.accentText} />
-            <h2 className="text-sm font-bold text-white uppercase tracking-widest">Cross-Feature Integration</h2>
+            <h2 className="text-sm font-bold text-white uppercase tracking-widest">Quick Launch Pad</h2>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {/* Chronos → Canvas */}
-            <IntegrationCard
-              icon={Target}
-              title="Chronos → Canvas"
-              description="Export deadlines as visual milestone nodes"
-              theme={theme}
-              onClick={() => {
-                const deadlines = calendarEvents.filter(e => e.priority === 'high' || e.type === 'deadline');
-                deadlines.forEach((event, i) => {
-                  addCanvasNode('note', 100 + (i * 350), 100, {
-                    title: event.title,
-                    content: `📅 ${event.date}\n⏰ ${event.time || 'All day'}\n\n${event.notes || ''}`
-                  });
-                });
-                setCurrentView('canvas');
-              }}
-            />
-
-            {/* Canvas → Chronos */}
-            <IntegrationCard
-              icon={Calendar}
-              title="Canvas → Chronos"
-              description="Generate timeline from architecture flow"
-              theme={theme}
-              onClick={() => {
-                const today = new Date();
-                canvasNodes.forEach((node, i) => {
-                  const futureDate = new Date(today);
-                  futureDate.setDate(today.getDate() + (i * 2));
-                  const dateStr = futureDate.toISOString().split('T')[0];
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Canvas Card */}
+            <motion.button
+              whileHover={{ scale: 1.02, y: -2 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setCurrentView('canvas')}
+              className="relative p-6 rounded-2xl bg-gradient-to-br from-blue-500/10 via-purple-500/5 to-transparent border border-blue-500/20 hover:border-blue-500/40 transition-all text-left group overflow-hidden"
+            >
+              {/* Glow Effect */}
+              <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/20 rounded-full blur-3xl group-hover:bg-blue-500/30 transition-all"></div>
+              
+              <div className="relative z-10 space-y-4">
+                <div className="flex items-start justify-between">
+                  <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 group-hover:bg-blue-500/20 transition-colors">
+                    <Layout size={24} className="text-blue-400" />
+                  </div>
+                  <ArrowRight size={16} className="text-blue-600 group-hover:text-blue-400 transition-colors group-hover:translate-x-1 transform duration-200" />
+                </div>
+                
+                <div>
+                  <h3 className="text-lg font-bold text-white mb-1">Canvas</h3>
+                  <p className="text-sm text-gray-500 mb-3">Visual thinking space</p>
                   
-                  addEvent(
-                    node.data.title || 'Canvas Milestone',
-                    dateStr,
-                    settings.developerMode ? 'task' : 'study',
-                    'medium',
-                    node.data.content || 'Imported from Canvas',
-                    '10:00'
-                  );
-                });
-                setCurrentView('chronos');
-              }}
-            />
+                  <div className="flex items-center gap-2">
+                    <div className="px-2 py-1 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                      <span className="text-xs font-bold text-blue-400">{stats.canvasNodes}</span>
+                    </div>
+                    <span className="text-xs text-gray-600">nodes created</span>
+                  </div>
+                </div>
+              </div>
+            </motion.button>
 
-            {/* Quick Actions */}
-            <IntegrationCard
-              icon={Plus}
-              title="Quick Create"
-              description="New project, event, or document"
-              theme={theme}
-              onClick={() => {
-                const choice = prompt('Create: 1=Project, 2=Event, 3=Document');
-                if (choice === '1') {
-                  const name = prompt('Project name:');
-                  if (name) {
-                    createProject(name);
-                    setCurrentView('dashboard');
-                  }
-                } else if (choice === '2') {
-                  setCurrentView('chronos');
-                } else if (choice === '3') {
-                  setCurrentView('zenith');
-                }
-              }}
-            />
+            {/* Zenith Card */}
+            <motion.button
+              whileHover={{ scale: 1.02, y: -2 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setCurrentView('zenith')}
+              className="relative p-6 rounded-2xl bg-gradient-to-br from-amber-500/10 via-orange-500/5 to-transparent border border-amber-500/20 hover:border-amber-500/40 transition-all text-left group overflow-hidden"
+            >
+              {/* Glow Effect */}
+              <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/20 rounded-full blur-3xl group-hover:bg-amber-500/30 transition-all"></div>
+              
+              <div className="relative z-10 space-y-4">
+                <div className="flex items-start justify-between">
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 group-hover:bg-amber-500/20 transition-colors">
+                    <FileText size={24} className="text-amber-400" />
+                  </div>
+                  <ArrowRight size={16} className="text-amber-600 group-hover:text-amber-400 transition-colors group-hover:translate-x-1 transform duration-200" />
+                </div>
+                
+                <div>
+                  <h3 className="text-lg font-bold text-white mb-1">Zenith</h3>
+                  <p className="text-sm text-gray-500 mb-3">Creative writing suite</p>
+                  
+                  <div className="flex items-center gap-2">
+                    <div className="px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                      <span className="text-xs font-bold text-amber-400">Ready</span>
+                    </div>
+                    <span className="text-xs text-gray-600">to write</span>
+                  </div>
+                </div>
+              </div>
+            </motion.button>
+
+            {/* Chronos Card */}
+            <motion.button
+              whileHover={{ scale: 1.02, y: -2 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setCurrentView('chronos')}
+              className="relative p-6 rounded-2xl bg-gradient-to-br from-purple-500/10 via-pink-500/5 to-transparent border border-purple-500/20 hover:border-purple-500/40 transition-all text-left group overflow-hidden"
+            >
+              {/* Glow Effect */}
+              <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/20 rounded-full blur-3xl group-hover:bg-purple-500/30 transition-all"></div>
+              
+              <div className="relative z-10 space-y-4">
+                <div className="flex items-start justify-between">
+                  <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 group-hover:bg-purple-500/20 transition-colors">
+                    <Calendar size={24} className="text-purple-400" />
+                  </div>
+                  <ArrowRight size={16} className="text-purple-600 group-hover:text-purple-400 transition-colors group-hover:translate-x-1 transform duration-200" />
+                </div>
+                
+                <div>
+                  <h3 className="text-lg font-bold text-white mb-1">Chronos</h3>
+                  <p className="text-sm text-gray-500 mb-3">Calendar & events</p>
+                  
+                  <div className="flex items-center gap-2">
+                    <div className="px-2 py-1 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                      <span className="text-xs font-bold text-purple-400">{stats.todayEvents}</span>
+                    </div>
+                    <span className="text-xs text-gray-600">events today</span>
+                  </div>
+                </div>
+              </div>
+            </motion.button>
+
+            {/* Chat Card */}
+            <motion.button
+              whileHover={{ scale: 1.02, y: -2 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setCurrentView('chat')}
+              className="relative p-6 rounded-2xl bg-gradient-to-br from-green-500/10 via-emerald-500/5 to-transparent border border-green-500/20 hover:border-green-500/40 transition-all text-left group overflow-hidden"
+            >
+              {/* Glow Effect */}
+              <div className="absolute top-0 right-0 w-32 h-32 bg-green-500/20 rounded-full blur-3xl group-hover:bg-green-500/30 transition-all"></div>
+              
+              <div className="relative z-10 space-y-4">
+                <div className="flex items-start justify-between">
+                  <div className="p-3 rounded-xl bg-green-500/10 border border-green-500/20 group-hover:bg-green-500/20 transition-colors">
+                    <MessageSquare size={24} className="text-green-400" />
+                  </div>
+                  <ArrowRight size={16} className="text-green-600 group-hover:text-green-400 transition-colors group-hover:translate-x-1 transform duration-200" />
+                </div>
+                
+                <div>
+                  <h3 className="text-lg font-bold text-white mb-1">Chat</h3>
+                  <p className="text-sm text-gray-500 mb-3">AI conversations</p>
+                  
+                  <div className="flex items-center gap-2">
+                    <div className="px-2 py-1 rounded-lg bg-green-500/10 border border-green-500/20">
+                      <span className="text-xs font-bold text-green-400">{stats.recentChats}</span>
+                    </div>
+                    <span className="text-xs text-gray-600">this week</span>
+                  </div>
+                </div>
+              </div>
+            </motion.button>
           </div>
         </div>
-
-        {/* Integration Tip Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={`p-5 rounded-xl border ${theme.primaryBorder} ${theme.softBg} relative overflow-hidden`}
-        >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -translate-y-16 translate-x-16"></div>
-          <div className="flex items-start gap-4 relative z-10">
-            <div className={`p-3 rounded-xl ${theme.primaryBg}`}>
-              <Sparkles size={20} className="text-white" />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
-                <Brain size={14} className={theme.accentText} />
-                Pro Tip: Cross-Feature Workflows
-              </h3>
-              <p className="text-xs text-gray-400 leading-relaxed mb-3">
-                Try the <strong className={theme.accentText}>Chronos → Canvas</strong> integration to visualize your high-priority deadlines as an architecture diagram. 
-                Or use <strong className={theme.accentText}>Canvas → Chronos</strong> to generate a development timeline from your system design.
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setCurrentView('canvas')}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${theme.primaryBg} text-white text-xs font-bold hover:brightness-110 transition-all`}
-                >
-                  <Layout size={12} />
-                  Open Canvas
-                </button>
-                <button
-                  onClick={() => setCurrentView('chronos')}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/10 text-white text-xs font-bold hover:bg-white/20 transition-all"
-                >
-                  <Calendar size={12} />
-                  Open Chronos
-                </button>
-              </div>
-            </div>
-          </div>
-        </motion.div>
 
       </div>
     </div>

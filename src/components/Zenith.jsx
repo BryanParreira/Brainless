@@ -2,11 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLumina } from '../context/LuminaContext';
 import { 
   PenTool, Sparkles, Maximize, Minimize, Save, 
-  AlignLeft, Clock, AlertTriangle, Brain,
+  AlignLeft, AlertTriangle, Brain,
   Wand2, Scissors, CheckCircle2, FolderPlus, ArrowRight,
-  FileText, Download, Eye, EyeOff, Type, Palette,
-  Zap, Target, ListOrdered, BookOpen, Hash, Code2,
-  X, Settings2, Volume2, Copy, ChevronDown, Mic
+  FileText, Download, Copy, ChevronDown,
+  Zap, ListOrdered, BookOpen, Hash, Code2, Palette
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -17,28 +16,32 @@ const WRITING_MODES = {
     icon: <PenTool size={14}/>, 
     color: 'text-blue-400',
     bg: 'bg-blue-500/10',
-    description: 'Write without constraints'
+    description: 'Write without constraints',
+    systemPrompt: 'Continue this text naturally and creatively.'
   },
   structured: { 
     name: 'Structured', 
     icon: <ListOrdered size={14}/>, 
     color: 'text-purple-400',
     bg: 'bg-purple-500/10',
-    description: 'Organized sections'
+    description: 'Organized sections',
+    systemPrompt: 'Continue this text following a logical, organized structure.'
   },
   research: { 
     name: 'Research', 
     icon: <BookOpen size={14}/>, 
     color: 'text-amber-400',
     bg: 'bg-amber-500/10',
-    description: 'Academic writing'
+    description: 'Academic writing',
+    systemPrompt: 'Continue this academic text with formal language and citations.'
   },
   creative: { 
     name: 'Creative', 
     icon: <Palette size={14}/>, 
     color: 'text-pink-400',
     bg: 'bg-pink-500/10',
-    description: 'Stories & fiction'
+    description: 'Stories & fiction',
+    systemPrompt: 'Continue this creative narrative with vivid descriptions and engaging storytelling.'
   },
 };
 
@@ -58,7 +61,6 @@ export const Zenith = () => {
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [writingMode, setWritingMode] = useState('freewrite');
   
-  // Track the active file so we save to the right place
   const [activeFilename, setActiveFilename] = useState(null); 
 
   // Stats
@@ -78,16 +80,13 @@ export const Zenith = () => {
   const [selection, setSelection] = useState({ start: 0, end: 0, text: "" });
   const [showLens, setShowLens] = useState(false);
   
-  // Save state
-  const [saveStatus, setSaveStatus] = useState('saved'); // 'saved', 'saving', 'unsaved'
+  const [saveStatus, setSaveStatus] = useState('saved');
 
   // UI State
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showModeSelector, setShowModeSelector] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [fontSize, setFontSize] = useState(20); // Default 20px
+  const [fontSize, setFontSize] = useState(20);
   const [lineHeight, setLineHeight] = useState(1.8);
-  const [showWordCount, setShowWordCount] = useState(true);
 
   const textareaRef = useRef(null);
   const isMounted = useRef(true);
@@ -150,7 +149,6 @@ export const Zenith = () => {
     const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0).length;
     const readTime = Math.max(1, Math.ceil(words / 200));
     
-    // Enhanced Cognitive Load Analysis
     const avgWordsPerSentence = sentences > 0 ? words / sentences : 0;
     
     let complexity = 'Neutral';
@@ -168,7 +166,7 @@ export const Zenith = () => {
     }
   }, [content]);
 
-  // --- ENHANCED GHOST WRITER ---
+  // --- ENHANCED GHOST WRITER WITH MODE-AWARE PROMPTING ---
   const triggerGhostWriter = async () => {
     if (isAiThinking || !content) return;
     setIsAiThinking(true);
@@ -176,11 +174,8 @@ export const Zenith = () => {
     const context = content.slice(-1500);
 
     try {
-        // Mode-aware prompting
-        let systemPrompt = "You are a text completion engine. Continue naturally.";
-        if (writingMode === 'creative') systemPrompt = "Continue this creative narrative with vivid descriptions.";
-        if (writingMode === 'research') systemPrompt = "Continue this academic text with formal language.";
-        if (writingMode === 'structured') systemPrompt = "Continue logically following the structure.";
+        // Use the systemPrompt from the current writing mode
+        const systemPrompt = WRITING_MODES[writingMode].systemPrompt;
 
         const prompt = `[INST] ${systemPrompt} Do NOT repeat the input. [/INST]\n\n${context}`;
 
@@ -205,7 +200,7 @@ export const Zenith = () => {
                  cleanText = " " + cleanText.trimStart();
             }
 
-            setGhostText(cleanText.slice(0, 200)); // Limit to 200 chars
+            setGhostText(cleanText.slice(0, 200));
         } else {
             setGhostText(" (No suggestion)");
         }
@@ -261,23 +256,19 @@ export const Zenith = () => {
   };
 
   const handleKeyDown = (e) => {
-      // Cmd+J for Ghost Writer
       if ((e.metaKey || e.ctrlKey) && e.key === 'j') { 
           e.preventDefault(); 
           triggerGhostWriter(); 
       }
-      // Tab to accept ghost text
       if (e.key === 'Tab' && ghostText) { 
           e.preventDefault(); 
           setContent(prev => prev + ghostText); 
           setGhostText(""); 
       }
-      // Cmd+S to save
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
           e.preventDefault();
           handleSave();
       }
-      // Escape to clear
       if (e.key === 'Escape') { 
           setGhostText(""); 
           setShowLens(false); 
@@ -347,7 +338,6 @@ export const Zenith = () => {
           await window.lumina.addFileToProject(activeProject.id, safeFilename);
           window.dispatchEvent(new CustomEvent('project-files-updated'));
           
-          // Success notification
           const notification = document.createElement('div');
           notification.className = 'fixed top-6 right-6 bg-green-500/10 border border-green-500/30 text-green-400 px-4 py-3 rounded-xl shadow-2xl z-[100] flex items-center gap-2';
           notification.innerHTML = `<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg> Saved to ${activeProject.name}`;
@@ -382,7 +372,6 @@ export const Zenith = () => {
     let filename = (title || 'zenith-export').replace(/[^a-z0-9\-_ ]/gi, '').trim().replace(/\s+/g, '_');
 
     if (format.id === 'html') {
-      // Convert markdown to basic HTML
       exportContent = `<!DOCTYPE html>
 <html>
 <head>
@@ -404,7 +393,6 @@ export const Zenith = () => {
     try {
       await window.lumina.saveGeneratedFile(exportContent, filename + format.ext);
       
-      // Success notification
       const notification = document.createElement('div');
       notification.className = 'fixed top-6 right-6 bg-blue-500/10 border border-blue-500/30 text-blue-400 px-4 py-3 rounded-xl shadow-2xl z-[100] flex items-center gap-2';
       notification.innerHTML = `<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"></path></svg> Exported as ${format.name}`;
@@ -412,17 +400,6 @@ export const Zenith = () => {
       setTimeout(() => notification.remove(), 3000);
     } catch (e) {
       console.error("Export failed", e);
-    }
-  };
-
-  // --- READ ALOUD ---
-  const readAloud = () => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(content);
-      utterance.rate = 0.9;
-      utterance.pitch = 1.0;
-      window.speechSynthesis.speak(utterance);
     }
   };
 
@@ -530,25 +507,12 @@ export const Zenith = () => {
         </div>
 
         <div className="flex items-center gap-4">
-            {/* Enhanced Stats */}
-            {showWordCount && (
-              <div className="flex items-center gap-3 text-[10px] font-mono">
+            {/* Simplified Stats - Only words and complexity */}
+            <div className="flex items-center gap-3 text-[10px] font-mono">
                 <div className="flex items-center gap-1.5 text-gray-500">
                   <AlignLeft size={12}/>
                   <span className="text-white font-bold">{stats.words}</span>
                   <span>words</span>
-                </div>
-                <div className="w-px h-3 bg-white/10"></div>
-                <div className="flex items-center gap-1.5 text-gray-500">
-                  <Type size={12}/>
-                  <span className="text-white font-bold">{stats.chars}</span>
-                  <span>chars</span>
-                </div>
-                <div className="w-px h-3 bg-white/10"></div>
-                <div className="flex items-center gap-1.5 text-gray-500">
-                  <Clock size={12}/>
-                  <span className="text-white font-bold">{stats.readTime}</span>
-                  <span>min</span>
                 </div>
                 <div className="w-px h-3 bg-white/10"></div>
                 <div className={`flex items-center gap-1.5 ${
@@ -560,8 +524,7 @@ export const Zenith = () => {
                     <Brain size={12}/> 
                     <span className="font-bold">{stats.complexity}</span>
                 </div>
-              </div>
-            )}
+            </div>
 
             {/* Save Status */}
             <div className="flex items-center gap-2 text-[10px] font-mono">
@@ -620,14 +583,6 @@ export const Zenith = () => {
                   <Copy size={14} />
               </button>
 
-              <button 
-                  onClick={readAloud}
-                  className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
-                  title="Read Aloud"
-              >
-                  <Volume2 size={14} />
-              </button>
-
               <div className="w-px h-6 bg-white/10"></div>
 
               <button 
@@ -659,8 +614,7 @@ export const Zenith = () => {
 
       {/* EDITOR AREA */}
       <div 
-        className="flex-1 overflow-y-auto custom-scrollbar relative flex justify-center z-10" 
-        onClick={() => textareaRef.current?.focus()}
+        className="flex-1 overflow-y-auto custom-scrollbar relative flex justify-center z-10"
       >
          <div className={`w-full max-w-4xl transition-all duration-700 ease-in-out ${
            isFocusMode ? 'py-32 px-16' : 'py-16 px-12'
@@ -673,9 +627,10 @@ export const Zenith = () => {
                 transition={{ delay: 0.1 }}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
                 placeholder="Untitled Masterpiece"
                 className="w-full bg-transparent text-5xl font-bold text-white placeholder-gray-800 outline-none mb-8 tracking-tight leading-tight"
-                style={{ fontSize: `${fontSize * 2}px` }}
+                autoComplete="off"
              />
 
              {/* Content Editor */}
@@ -683,8 +638,8 @@ export const Zenith = () => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.2 }}
-                className="relative font-serif text-gray-300"
-                style={{ fontSize: `${fontSize}px`, lineHeight }}
+                className="relative font-serif text-xl leading-loose text-gray-300"
+                onClick={() => textareaRef.current?.focus()}
              >
                 <textarea
                     ref={textareaRef}
@@ -695,51 +650,11 @@ export const Zenith = () => {
                     placeholder="Start writing... (Press Cmd+J for AI suggestions)"
                     className="w-full min-h-[60vh] bg-transparent outline-none resize-none placeholder-gray-800 focus:placeholder-gray-700 caret-blue-500 overflow-hidden"
                     spellCheck={false}
+                    autoComplete="off"
                 />
              </motion.div>
          </div>
       </div>
-
-      {/* FLOATING TOOLBAR - Only in Focus Mode */}
-      <AnimatePresence>
-        {isFocusMode && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[#0a0a0a]/90 border border-white/10 shadow-2xl backdrop-blur-xl z-50"
-          >
-            <button 
-              onClick={() => setShowWordCount(!showWordCount)}
-              className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
-              title="Toggle Stats"
-            >
-              {showWordCount ? <Eye size={14} /> : <EyeOff size={14} />}
-            </button>
-            
-            <div className="w-px h-6 bg-white/10"></div>
-
-            <button 
-              onClick={triggerGhostWriter}
-              className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/30 rounded-lg text-blue-400 transition-colors"
-              disabled={isAiThinking}
-            >
-              <Sparkles size={14} className={isAiThinking ? 'animate-spin' : ''} />
-              <span className="text-xs font-medium">AI Assist</span>
-            </button>
-
-            <div className="w-px h-6 bg-white/10"></div>
-
-            <button 
-              onClick={() => setIsFocusMode(false)}
-              className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
-              title="Exit Focus"
-            >
-              <X size={14} />
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* --- AI OVERLAYS --- */}
       <AnimatePresence>
