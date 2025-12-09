@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useLumina } from '../context/LuminaContext';
 import { 
   Calendar as CalendarIcon, 
@@ -153,48 +153,131 @@ const getEventColor = (type, isDev) => {
 };
 
 const generateICS = (events) => {
-  let icsContent = "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//OmniLab//Horizon//EN\n";
+  let icsContent = "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//OmniLab//Horizon//EN\nCALSCALE:GREGORIAN\nMETHOD:PUBLISH\n";
+  
   events.forEach(event => {
     const start = event.date.replace(/-/g, '');
-    icsContent += `BEGIN:VEVENT\nSUMMARY:${event.title}\nDTSTART;VALUE=DATE:${start}\nDESCRIPTION:${event.notes || ''}\nEND:VEVENT\n`;
+    const uid = `${event.id || Math.random().toString(36).substr(2, 9)}@omnilab.app`;
+    const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    
+    icsContent += `BEGIN:VEVENT\n`;
+    icsContent += `UID:${uid}\n`;
+    icsContent += `DTSTAMP:${timestamp}\n`;
+    icsContent += `DTSTART;VALUE=DATE:${start}\n`;
+    icsContent += `SUMMARY:${event.title}\n`;
+    
+    if (event.notes) {
+      icsContent += `DESCRIPTION:${event.notes.replace(/\n/g, '\\n')}\n`;
+    }
+    
+    if (event.type) {
+      icsContent += `CATEGORIES:${event.type}\n`;
+    }
+    
+    if (event.priority) {
+      const priorityMap = { high: 1, medium: 5, low: 9 };
+      icsContent += `PRIORITY:${priorityMap[event.priority] || 5}\n`;
+    }
+    
+    icsContent += `END:VEVENT\n`;
   });
+  
   icsContent += "END:VCALENDAR";
-  const blob = new Blob([icsContent], { type: 'text/calendar' });
+  
+  const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'omnilab-schedule.ics';
+  a.download = `omnilab-calendar-${new Date().toISOString().split('T')[0]}.ics`;
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
   window.URL.revokeObjectURL(url);
 };
 
 const parseICS = (icsContent) => {
   const events = [];
-  const eventBlocks = icsContent.split('BEGIN:VEVENT');
+  console.log('🔍 Starting ICS parsing...');
+  
+  // Clean the content - remove any BOM and normalize line endings
+  const cleanContent = icsContent.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  
+  // Split by BEGIN:VEVENT to find event blocks
+  const eventBlocks = cleanContent.split('BEGIN:VEVENT');
+  console.log(`Found ${eventBlocks.length - 1} event blocks`);
   
   for (let i = 1; i < eventBlocks.length; i++) {
     const block = eventBlocks[i];
-    const summaryMatch = block.match(/SUMMARY:(.*)/);
-    const dateMatch = block.match(/DTSTART[^:]*:(\d{8})/);
-    const descMatch = block.match(/DESCRIPTION:(.*)/);
     
-    if (summaryMatch && dateMatch) {
-      const dateStr = dateMatch[1];
-      const year = dateStr.substring(0, 4);
-      const month = dateStr.substring(4, 6);
-      const day = dateStr.substring(6, 8);
+    try {
+      // Extract fields using regex
+      const summaryMatch = block.match(/SUMMARY:(.+?)(?:\n|$)/);
+      const dateMatch = block.match(/DTSTART[^:]*:(\d{8})/);
+      const descMatch = block.match(/DESCRIPTION:(.+?)(?:\n(?![^\n])|$)/s);
+      const categoryMatch = block.match(/CATEGORIES:(.+?)(?:\n|$)/);
+      const priorityMatch = block.match(/PRIORITY:(\d)/);
       
-      events.push({
-        title: summaryMatch[1].trim(),
-        date: `${year}-${month}-${day}`,
-        type: 'study',
-        priority: 'medium',
-        notes: descMatch ? descMatch[1].trim() : '',
-        time: ''
+      console.log(`Event ${i} matches:`, {
+        summary: summaryMatch?.[1],
+        date: dateMatch?.[1],
+        category: categoryMatch?.[1],
+        priority: priorityMatch?.[1]
       });
+      
+      if (summaryMatch && dateMatch) {
+        const dateStr = dateMatch[1];
+        const year = dateStr.substring(0, 4);
+        const month = dateStr.substring(4, 6);
+        const day = dateStr.substring(6, 8);
+        
+        // Parse priority (ICS uses 1=high, 5=medium, 9=low)
+        let priority = 'medium';
+        if (priorityMatch) {
+          const p = parseInt(priorityMatch[1]);
+          if (p <= 3) priority = 'high';
+          else if (p >= 7) priority = 'low';
+        }
+        
+        // Parse type from categories
+        let type = 'general';
+        if (categoryMatch) {
+          const cat = categoryMatch[1].trim().toLowerCase();
+          if (['study', 'assignment', 'exam', 'task', 'deadline', 'release'].includes(cat)) {
+            type = cat;
+          }
+        }
+        
+        // Clean up description
+        let notes = '';
+        if (descMatch) {
+          notes = descMatch[1]
+            .trim()
+            .replace(/\\n/g, '\n')
+            .replace(/\\,/g, ',')
+            .replace(/\\;/g, ';');
+        }
+        
+        const event = {
+          title: summaryMatch[1].trim().replace(/\\n/g, '\n'),
+          date: `${year}-${month}-${day}`,
+          type: type,
+          priority: priority,
+          notes: notes,
+          time: ''
+        };
+        
+        console.log(`✅ Parsed event ${i}:`, event);
+        events.push(event);
+      } else {
+        console.warn(`⚠️ Event ${i} missing required fields (summary or date)`);
+      }
+    } catch (error) {
+      console.error(`❌ Error parsing event block ${i}:`, error);
+      continue;
     }
   }
   
+  console.log(`🎉 Successfully parsed ${events.length} events`);
   return events;
 };
 
@@ -498,6 +581,8 @@ const WeekView = React.memo(({ currentDate, eventsByDate, theme, onEventClick })
 // --- EVENT MODAL COMPONENT ---
 const EventModal = React.memo(({ isOpen, isPlanning, isEditing, onClose, onAdd, onUpdate, onDelete, onGenerate, settings, theme, isLoading, voiceHandler, ...props }) => {
     const [isEditingState, setIsEditingState] = useState(false);
+    const dateInputRef = useRef(null);
+    const timeInputRef = useRef(null);
 
     useEffect(() => {
         if (isOpen) {
@@ -755,23 +840,35 @@ const EventModal = React.memo(({ isOpen, isPlanning, isEditing, onClose, onAdd, 
                             <label className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2">
                               <CalendarIcon size={12}/> Date
                             </label>
-                            <input 
-                              type="date" 
-                              value={props.newEventDate} 
-                              onChange={(e) => props.setNewEventDate(e.target.value)} 
-                              className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-blue-500/50 cursor-pointer [color-scheme:dark] hover:border-white/30 transition-colors" 
-                            />
+                            <div 
+                              onClick={() => dateInputRef.current?.showPicker?.()} 
+                              className="relative cursor-pointer"
+                            >
+                              <input 
+                                ref={dateInputRef}
+                                type="date" 
+                                value={props.newEventDate} 
+                                onChange={(e) => props.setNewEventDate(e.target.value)} 
+                                className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-blue-500/50 cursor-pointer [color-scheme:dark] hover:border-white/30 transition-colors" 
+                              />
+                            </div>
                             </div>
                             <div>
                             <label className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2">
                               <Clock size={12}/> Time
                             </label>
-                            <input 
-                              type="time" 
-                              value={props.newEventTime} 
-                              onChange={(e) => props.setNewEventTime(e.target.value)} 
-                              className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-blue-500/50 cursor-pointer [color-scheme:dark] hover:border-white/30 transition-colors" 
-                            />
+                            <div 
+                              onClick={() => timeInputRef.current?.showPicker?.()} 
+                              className="relative cursor-pointer"
+                            >
+                              <input 
+                                ref={timeInputRef}
+                                type="time" 
+                                value={props.newEventTime} 
+                                onChange={(e) => props.setNewEventTime(e.target.value)} 
+                                className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-blue-500/50 cursor-pointer [color-scheme:dark] hover:border-white/30 transition-colors" 
+                              />
+                            </div>
                             </div>
                         </div>
                         <div>
@@ -985,29 +1082,72 @@ export const Chronos = React.memo(() => {
     }
   };
 
-  const handleImportICS = () => {
+  const handleImportICS = useCallback(() => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.ics';
+    input.accept = '.ics,.ical';
     input.onchange = (e) => {
       const file = e.target.files[0];
       if (file) {
+        console.log('📁 File selected:', file.name);
         const reader = new FileReader();
         reader.onload = (event) => {
-          const icsContent = event.target.result;
-          const importedEvents = parseICS(icsContent);
-          
-          importedEvents.forEach(evt => {
-            addEvent(evt.title, evt.date, evt.type, evt.priority, evt.notes, evt.time);
-          });
-          
-          showNotification(`Imported ${importedEvents.length} event(s) from calendar`);
+          try {
+            const icsContent = event.target.result;
+            console.log('📄 File content loaded, length:', icsContent.length);
+            
+            const importedEvents = parseICS(icsContent);
+            console.log('🔍 Parsed events:', importedEvents);
+            
+            if (importedEvents.length === 0) {
+              showNotification("❌ No events found in calendar file");
+              return;
+            }
+            
+            // Add each event to the calendar
+            let successCount = 0;
+            let failCount = 0;
+            
+            importedEvents.forEach((evt, index) => {
+              try {
+                console.log(`Adding event ${index + 1}/${importedEvents.length}:`, evt);
+                
+                // Ensure addEvent is available
+                if (typeof addEvent === 'function') {
+                  addEvent(evt.title, evt.date, evt.type, evt.priority, evt.notes, evt.time);
+                  successCount++;
+                  console.log(`✅ Successfully added: ${evt.title}`);
+                } else {
+                  console.error('❌ addEvent function not available');
+                  failCount++;
+                }
+              } catch (error) {
+                console.error('❌ Error adding event:', evt.title, error);
+                failCount++;
+              }
+            });
+            
+            console.log(`Import complete: ${successCount} success, ${failCount} failed`);
+            
+            if (successCount > 0) {
+              showNotification(`✅ Successfully imported ${successCount} event(s)${failCount > 0 ? ` (${failCount} failed)` : ''}`);
+            } else {
+              showNotification("❌ Failed to import events");
+            }
+          } catch (error) {
+            console.error('❌ Error parsing calendar file:', error);
+            showNotification("❌ Error importing calendar file");
+          }
+        };
+        reader.onerror = (error) => {
+          console.error('❌ Error reading file:', error);
+          showNotification("❌ Error reading calendar file");
         };
         reader.readAsText(file);
       }
     };
     input.click();
-  };
+  }, [addEvent, showNotification]);
 
   const closeModal = () => {
     setIsModalOpen(false); setIsPlanning(false); setEditingEvent(null);

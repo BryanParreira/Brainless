@@ -190,7 +190,7 @@ export const Zenith = () => {
     if (content && saveStatus === 'saved') {
       setSaveStatus('unsaved');
     }
-  }, [content]);
+  }, [content, title]);
 
   // --- ENHANCED STATS ENGINE ---
   useEffect(() => {
@@ -344,7 +344,11 @@ export const Zenith = () => {
 
   // --- FILE OPERATIONS ---
   const handleSave = async () => {
-    if (!content.trim()) return;
+    if (!content.trim()) {
+      showNotification('⚠️ Cannot save empty document', 'warning');
+      return;
+    }
+    
     setSaveStatus('saving');
 
     let filenameToSave = activeFilename;
@@ -354,7 +358,8 @@ export const Zenith = () => {
         if (title && title.trim().length > 0) {
             baseFilename = title.trim();
         } else {
-            baseFilename = content.split('\n')[0].slice(0, 20);
+            const firstLine = content.split('\n')[0].slice(0, 30);
+            baseFilename = firstLine || "zenith-draft";
         }
         const safeFilename = baseFilename
             .replace(/[^a-z0-9\-_ ]/gi, '')
@@ -365,13 +370,37 @@ export const Zenith = () => {
     }
 
     try {
+        // Save the file
         await window.lumina.saveGeneratedFile(content, filenameToSave);
+        
+        // Store metadata
+        const metadata = {
+          title: title || filenameToSave.replace('.md', ''),
+          filename: filenameToSave,
+          wordCount: stats.words,
+          lastModified: new Date().toISOString(),
+          writingMode: writingMode
+        };
+        
+        // Save metadata to a separate file
+        await window.lumina.saveGeneratedFile(
+          JSON.stringify(metadata, null, 2), 
+          `${filenameToSave}.meta.json`
+        );
+        
         setActiveFilename(filenameToSave);
         setSaveStatus('saved');
-        window.dispatchEvent(new CustomEvent('zenith-file-saved'));
+        
+        // Notify the sidebar to refresh
+        window.dispatchEvent(new CustomEvent('zenith-file-saved', { 
+          detail: { filename: filenameToSave, metadata } 
+        }));
+        
+        showNotification(`✓ Saved as ${filenameToSave}`, 'success');
     } catch (e) {
         console.error("Save failed", e);
         setSaveStatus('unsaved');
+        showNotification('❌ Failed to save', 'error');
     }
   };
 
@@ -544,7 +573,7 @@ export const Zenith = () => {
                 <div className="flex flex-col">
                     <span className="text-sm font-bold text-white">Zenith Creative Suite</span>
                     <span className="text-[10px] text-gray-500">
-                      {activeProject ? activeProject.name : 'Independent Writing Space'}
+                      {activeFilename ? activeFilename : activeProject ? activeProject.name : 'Independent Writing Space'}
                     </span>
                 </div>
             </div>

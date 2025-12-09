@@ -1,4 +1,3 @@
-
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('lumina', {
@@ -67,10 +66,11 @@ contextBridge.exposeInMainWorld('lumina', {
   deleteCache: () => ipcRenderer.invoke('system:delete-cache'),
   deleteCalendar: () => ipcRenderer.invoke('system:delete-calendar'),
   
-  // File System Operations
+  // File System Operations - FIXED FOR ZENITH
   listFiles: (directory) => ipcRenderer.invoke('system:list-files', directory),
   readFile: (filename) => ipcRenderer.invoke('system:read-file', filename),
   saveGeneratedFile: (content, filename) => ipcRenderer.invoke('system:save-generated-file', { content, filename }),
+  deleteFile: (filename) => ipcRenderer.invoke('system:delete-file', filename),
   openFile: (filePath) => ipcRenderer.invoke('system:open-file', filePath),
   
   // Command Bar Listener (Alt+Space)

@@ -212,6 +212,7 @@ async function readProjectFiles(projectFiles) {
       console.warn(`Read Error: ${file.name}`, e); 
     }
   }
+
   return context;
 }
 
@@ -290,45 +291,487 @@ app.whenReady().then(() => {
   // IPC HANDLERS
   // ==========================================
 
-  ipcMain.handle('settings:load', async () => { try { if (fs.existsSync(getSettingsPath())) return { ...DEFAULT_SETTINGS, ...JSON.parse(await fs.promises.readFile(getSettingsPath(), 'utf-8')) }; } catch (e) { } return DEFAULT_SETTINGS; });
-  ipcMain.handle('settings:save', async (e, settings) => { await fs.promises.writeFile(getSettingsPath(), JSON.stringify(settings, null, 2)); return true; });
-  ipcMain.handle('system:factory-reset', async () => { try { const del = async (d) => { if(fs.existsSync(d)){ for(const f of await fs.promises.readdir(d)){ const c=path.join(d,f); if((await fs.promises.lstat(c)).isDirectory()) await fs.promises.rm(c,{recursive:true}); else await fs.promises.unlink(c); } } }; await del(getSessionsPath()); await del(getProjectsPath()); await fs.promises.writeFile(getSettingsPath(), JSON.stringify(DEFAULT_SETTINGS)); return true; } catch(e){ return false; } });
-  
-  ipcMain.handle('system:delete-chats', async () => { try { const sessionsPath = getSessionsPath(); if(fs.existsSync(sessionsPath)){ const files = await fs.promises.readdir(sessionsPath); for(const f of files){ if(f.endsWith('.json')) await fs.promises.unlink(path.join(sessionsPath, f)); } } return true; } catch(e){ console.error('Delete chats error:', e); return false; } });
-  ipcMain.handle('system:delete-cache', async () => { try { const cachePath = getCachePath(); if(fs.existsSync(cachePath)){ const files = await fs.promises.readdir(cachePath); for(const f of files){ await fs.promises.unlink(path.join(cachePath, f)); } } return true; } catch(e){ console.error('Delete cache error:', e); return false; } });
-  ipcMain.handle('system:delete-calendar', async () => { try { const calendarPath = getCalendarPath(); if(fs.existsSync(calendarPath)){ await fs.promises.unlink(calendarPath); } return true; } catch(e){ console.error('Delete calendar error:', e); return false; } });
-  
-  ipcMain.handle('system:save-file', async (e, { content, filename }) => { const { filePath } = await dialog.showSaveDialog(mainWindow, { defaultPath: filename || 'zenith-draft.md', filters: [ { name: 'Markdown', extensions: ['md'] }, { name: 'Text', extensions: ['txt'] }, { name: 'All Files', extensions: ['*'] } ] }); if (filePath) { await fs.promises.writeFile(filePath, content, 'utf-8'); return true; } return false; });
-  ipcMain.handle('system:save-generated-file', async (e, { content, filename }) => { try { const filePath = path.join(getGeneratedFilesPath(), filename); await fs.promises.writeFile(filePath, content, 'utf-8'); return { success: true, path: filePath }; } catch (error) { console.error('Save generated file error:', error); return { success: false, error: error.message }; } });
-  ipcMain.handle('system:read-file', async (e, filename) => { try { const filePath = path.join(getGeneratedFilesPath(), filename); if (!fs.existsSync(filePath)) { return { success: false, error: 'File not found' }; } const content = await fs.promises.readFile(filePath, 'utf-8'); return { success: true, content }; } catch (error) { console.error('Read file error:', error); return { success: false, error: error.message }; } });
-  ipcMain.handle('system:open-file', async (e, filePath) => { try { if (!fs.existsSync(filePath)) { return { success: false, error: 'File not found' }; } await shell.openPath(filePath); return { success: true }; } catch (error) { console.error('Error opening file:', error); return { success: false, error: error.message }; } });
+  // --- SETTINGS ---
+  ipcMain.handle('settings:load', async () => { 
+    try { 
+      if (fs.existsSync(getSettingsPath())) {
+        return { ...DEFAULT_SETTINGS, ...JSON.parse(await fs.promises.readFile(getSettingsPath(), 'utf-8')) }; 
+      }
+    } catch (e) { } 
+    return DEFAULT_SETTINGS; 
+  });
 
-  ipcMain.handle('project:list', async () => { const d = getProjectsPath(); const f = await fs.promises.readdir(d); const p = []; for (const x of f) { if(x.endsWith('.json')) p.push(JSON.parse(await fs.promises.readFile(path.join(d, x), 'utf-8'))); } return p; });
-  ipcMain.handle('project:create', async (e, { id, name }) => { const limitedName = name.substring(0, 100); const p = path.join(getProjectsPath(), `${id}.json`); const n = { id, name: limitedName, files: [], systemPrompt: "", createdAt: new Date() }; await fs.promises.writeFile(p, JSON.stringify(n, null, 2)); return n; });
-  ipcMain.handle('project:delete', async (e, id) => { await fs.promises.unlink(path.join(getProjectsPath(), `${id}.json`)); return true; });
-  ipcMain.handle('project:update-settings', async (e, { id, systemPrompt }) => { const p = path.join(getProjectsPath(), `${id}.json`); if (fs.existsSync(p)) { const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); d.systemPrompt = systemPrompt; await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); return d; } return null; });
-  ipcMain.handle('project:delete-file', async (e, { projectId, filePath }) => { try { const p = path.join(getProjectsPath(), `${projectId}.json`); if (fs.existsSync(p)) { const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); d.files = d.files.filter(f => f.path !== filePath); await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); return { success: true, files: d.files }; } return { success: false, error: 'Project not found' }; } catch (error) { console.error('Error deleting file from project:', error); return { success: false, error: error.message }; } });
-  ipcMain.handle('project:add-file-to-project', async (e, { projectId, filename }) => { try { const projectPath = path.join(getProjectsPath(), `${projectId}.json`); if (!fs.existsSync(projectPath)) { return { success: false, error: 'Project not found' }; } const project = JSON.parse(await fs.promises.readFile(projectPath, 'utf-8')); const filePath = path.join(getGeneratedFilesPath(), filename); if (!fs.existsSync(filePath)) { return { success: false, error: 'File not found' }; } const exists = project.files.some(f => f.name === filename || f.path === filePath); if (!exists) { project.files.push({ name: filename, path: filePath, type: 'md', addedAt: new Date().toISOString(), source: 'zenith' }); await fs.promises.writeFile(projectPath, JSON.stringify(project, null, 2)); } return { success: true, files: project.files }; } catch (error) { console.error('Add file to project error:', error); return { success: false, error: error.message }; } });
-  
-  ipcMain.handle('project:add-files', async (e, projectId) => { const r = await dialog.showOpenDialog(mainWindow, { properties: ['openFile', 'multiSelections'] }); if (!r.canceled) { const p = path.join(getProjectsPath(), `${projectId}.json`); const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); const n = r.filePaths.map(x => ({ path: x, name: path.basename(x), type: path.extname(x).substring(1) })); d.files.push(...n.filter(f => !d.files.some(ex => ex.path === f.path))); await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); return d.files; } return null; });
-  ipcMain.handle('project:add-folder', async (e, projectId) => { const r = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] }); if (!r.canceled && r.filePaths.length > 0) { const folderPath = r.filePaths[0]; const allFiles = await scanDirectory(folderPath); const p = path.join(getProjectsPath(), `${projectId}.json`); const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); const newFiles = allFiles.filter(f => !d.files.some(existing => existing.path === f.path)); d.files.push(...newFiles); d.rootPath = folderPath; await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); return d.files; } return null; });
-  ipcMain.handle('project:add-url', async (e, { projectId, url }) => { try { const cheerio = loadCheerio(); const response = await fetch(url); const html = await response.text(); const $ = cheerio.load(html); $('script, style, nav, footer, iframe').remove(); const content = $('body').text().replace(/\s\s+/g, ' ').trim(); const filename = `web-${Date.now()}.txt`; await fs.promises.writeFile(path.join(getCachePath(), filename), content, 'utf-8'); const p = path.join(getProjectsPath(), `${projectId}.json`); const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); d.files.push({ path: url, name: $('title').text() || url, type: 'url', cacheFile: filename }); await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); return d.files; } catch (e) { throw new Error("Scrape Failed"); } });
-  ipcMain.handle('agent:deep-research', async (e, { projectId, url }) => { try { const cheerio = loadCheerio(); const response = await fetch(url); const html = await response.text(); const $ = cheerio.load(html); $('script, style, nav, footer, iframe').remove(); const content = $('body').text().replace(/\s\s+/g, ' ').trim().slice(0, 15000); return content; } catch (e) { throw new Error("Research Failed"); } });
-  ipcMain.handle('project:scaffold', async (e, { projectId, structure }) => { const p = path.join(getProjectsPath(), `${projectId}.json`); if (!fs.existsSync(p)) throw new Error("Project not found"); const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); if (!d.rootPath) throw new Error("NO_ROOT_PATH"); const root = d.rootPath; const results = []; for (const item of structure) { try { const fullPath = path.join(root, item.path); if (!fullPath.startsWith(root)) continue; if (item.type === 'folder') { await fs.promises.mkdir(fullPath, { recursive: true }); } else { await fs.promises.mkdir(path.dirname(fullPath), { recursive: true }); await fs.promises.writeFile(fullPath, item.content || '', 'utf-8'); } results.push({ success: true, path: item.path }); } catch (err) { results.push({ success: false, path: item.path, error: err.message }); } } return results; });
+  ipcMain.handle('settings:save', async (e, settings) => { 
+    await fs.promises.writeFile(getSettingsPath(), JSON.stringify(settings, null, 2)); 
+    return true; 
+  });
 
-  ipcMain.handle('session:save', async (e, { id, title, messages, date }) => { const p = path.join(getSessionsPath(), `${id}.json`); let t = title; if(fs.existsSync(p)){ const ex = JSON.parse(await fs.promises.readFile(p,'utf-8')); if(ex.title && ex.title!=="New Chat" && (!title||title==="New Chat")) t = ex.title; } await fs.promises.writeFile(p, JSON.stringify({ id, title:t||"New Chat", messages, date }, null, 2)); return true; });
-  ipcMain.handle('session:list', async () => { const d = getSessionsPath(); const f = await fs.promises.readdir(d); const s = []; for(const x of f){ if(x.endsWith('.json')){ try{ const j=JSON.parse(await fs.promises.readFile(path.join(d,x),'utf-8')); s.push({id:j.id, title:j.title, date:j.date}); }catch(e){} } } return s.sort((a,b)=>new Date(b.date)-new Date(a.date)); });
+  // --- SYSTEM RESET ---
+  ipcMain.handle('system:factory-reset', async () => { 
+    try { 
+      const del = async (d) => { 
+        if(fs.existsSync(d)){ 
+          for(const f of await fs.promises.readdir(d)){ 
+            const c=path.join(d,f); 
+            if((await fs.promises.lstat(c)).isDirectory()) {
+              await fs.promises.rm(c,{recursive:true}); 
+            } else {
+              await fs.promises.unlink(c); 
+            }
+          } 
+        } 
+      }; 
+      await del(getSessionsPath()); 
+      await del(getProjectsPath()); 
+      await fs.promises.writeFile(getSettingsPath(), JSON.stringify(DEFAULT_SETTINGS)); 
+      return true; 
+    } catch(e){ 
+      return false; 
+    } 
+  });
+  
+  ipcMain.handle('system:delete-chats', async () => { 
+    try { 
+      const sessionsPath = getSessionsPath(); 
+      if(fs.existsSync(sessionsPath)){ 
+        const files = await fs.promises.readdir(sessionsPath); 
+        for(const f of files){ 
+          if(f.endsWith('.json')) await fs.promises.unlink(path.join(sessionsPath, f)); 
+        } 
+      } 
+      return true; 
+    } catch(e){ 
+      console.error('Delete chats error:', e); 
+      return false; 
+    } 
+  });
+
+  ipcMain.handle('system:delete-cache', async () => { 
+    try { 
+      const cachePath = getCachePath(); 
+      if(fs.existsSync(cachePath)){ 
+        const files = await fs.promises.readdir(cachePath); 
+        for(const f of files){ 
+          await fs.promises.unlink(path.join(cachePath, f)); 
+        } 
+      } 
+      return true; 
+    } catch(e){ 
+      console.error('Delete cache error:', e); 
+      return false; 
+    } 
+  });
+
+  ipcMain.handle('system:delete-calendar', async () => { 
+    try { 
+      const calendarPath = getCalendarPath(); 
+      if(fs.existsSync(calendarPath)){ 
+        await fs.promises.unlink(calendarPath); 
+      } 
+      return true; 
+    } catch(e){ 
+      console.error('Delete calendar error:', e); 
+      return false; 
+    } 
+  });
+  
+  // --- FILE OPERATIONS (UPDATED FOR ZENITH) ---
+  
+  ipcMain.handle('system:save-file', async (e, { content, filename }) => { 
+    const { filePath } = await dialog.showSaveDialog(mainWindow, { 
+      defaultPath: filename || 'zenith-draft.md', 
+      filters: [ 
+        { name: 'Markdown', extensions: ['md'] }, 
+        { name: 'Text', extensions: ['txt'] }, 
+        { name: 'All Files', extensions: ['*'] } 
+      ] 
+    }); 
+    if (filePath) { 
+      await fs.promises.writeFile(filePath, content, 'utf-8'); 
+      return true; 
+    } 
+    return false; 
+  });
+
+  // UPDATED: Return boolean for success
+  ipcMain.handle('system:save-generated-file', async (e, { content, filename }) => {
+    try {
+      const filePath = path.join(getGeneratedFilesPath(), filename);
+      await fs.promises.writeFile(filePath, content, 'utf-8');
+      console.log('✅ File saved:', filePath);
+      return true; // Return true for success
+    } catch (error) {
+      console.error('❌ Save error:', error);
+      throw error; // Throw error so frontend can catch it
+    }
+  });
+
+  // UPDATED: Return content directly
+  ipcMain.handle('system:read-file', async (e, filename) => {
+    try {
+      const filePath = path.join(getGeneratedFilesPath(), filename);
+      
+      if (!fs.existsSync(filePath)) {
+        throw new Error('File not found');
+      }
+      
+      const content = await fs.promises.readFile(filePath, 'utf-8');
+      return content; // Return content directly, not wrapped
+    } catch (error) {
+      console.error('Read file error:', error);
+      throw error; // Throw error so frontend can catch it
+    }
+  });
+
+  // NEW: List files in directory
+  ipcMain.handle('system:list-files', async (e, directory) => {
+    try {
+      const targetDir = directory || getGeneratedFilesPath();
+      if (!fs.existsSync(targetDir)) {
+        return [];
+      }
+      
+      const files = await fs.promises.readdir(targetDir);
+      const fileList = [];
+      
+      for (const filename of files) {
+        // Skip metadata files, show only the actual content files
+        if (filename.endsWith('.meta.json')) continue;
+        
+        const filePath = path.join(targetDir, filename);
+        const stats = await fs.promises.stat(filePath);
+        
+        fileList.push({
+          name: filename,
+          path: filePath,
+          size: stats.size,
+          modified: stats.mtime,
+          created: stats.birthtime
+        });
+      }
+      
+      return fileList;
+    } catch (error) {
+      console.error('List files error:', error);
+      return [];
+    }
+  });
+
+  // NEW: Delete file handler
+  ipcMain.handle('system:delete-file', async (e, filename) => {
+    try {
+      const filePath = path.join(getGeneratedFilesPath(), filename);
+      
+      if (!fs.existsSync(filePath)) {
+        return { success: false, error: 'File not found' };
+      }
+      
+      // Delete the main file
+      await fs.promises.unlink(filePath);
+      
+      // Also delete metadata file if it exists
+      const metaPath = `${filePath}.meta.json`;
+      if (fs.existsSync(metaPath)) {
+        await fs.promises.unlink(metaPath);
+      }
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Delete file error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('system:open-file', async (e, filePath) => { 
+    try { 
+      if (!fs.existsSync(filePath)) { 
+        return { success: false, error: 'File not found' }; 
+      } 
+      await shell.openPath(filePath); 
+      return { success: true }; 
+    } catch (error) { 
+      console.error('Error opening file:', error); 
+      return { success: false, error: error.message }; 
+    } 
+  });
+
+  // --- PROJECT MANAGEMENT ---
+  
+  ipcMain.handle('project:list', async () => { 
+    const d = getProjectsPath(); 
+    const f = await fs.promises.readdir(d); 
+    const p = []; 
+    for (const x of f) { 
+      if(x.endsWith('.json')) p.push(JSON.parse(await fs.promises.readFile(path.join(d, x), 'utf-8'))); 
+    } 
+    return p; 
+  });
+
+  ipcMain.handle('project:create', async (e, { id, name }) => { 
+    const limitedName = name.substring(0, 100); 
+    const p = path.join(getProjectsPath(), `${id}.json`); 
+    const n = { id, name: limitedName, files: [], systemPrompt: "", createdAt: new Date() }; 
+    await fs.promises.writeFile(p, JSON.stringify(n, null, 2)); 
+    return n; 
+  });
+
+  ipcMain.handle('project:delete', async (e, id) => { 
+    await fs.promises.unlink(path.join(getProjectsPath(), `${id}.json`)); 
+    return true; 
+  });
+
+  ipcMain.handle('project:update-settings', async (e, { id, systemPrompt }) => { 
+    const p = path.join(getProjectsPath(), `${id}.json`); 
+    if (fs.existsSync(p)) { 
+      const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); 
+      d.systemPrompt = systemPrompt; 
+      await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); 
+      return d; 
+    } 
+    return null; 
+  });
+
+  ipcMain.handle('project:delete-file', async (e, { projectId, filePath }) => { 
+    try { 
+      const p = path.join(getProjectsPath(), `${projectId}.json`); 
+      if (fs.existsSync(p)) { 
+        const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); 
+        d.files = d.files.filter(f => f.path !== filePath); 
+        await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); 
+        return { success: true, files: d.files }; 
+      } 
+      return { success: false, error: 'Project not found' }; 
+    } catch (error) { 
+      console.error('Error deleting file from project:', error); 
+      return { success: false, error: error.message }; 
+    } 
+  });
+
+  ipcMain.handle('project:add-file-to-project', async (e, { projectId, filename }) => { 
+    try { 
+      const projectPath = path.join(getProjectsPath(), `${projectId}.json`); 
+      if (!fs.existsSync(projectPath)) { 
+        return { success: false, error: 'Project not found' }; 
+      } 
+      
+      const project = JSON.parse(await fs.promises.readFile(projectPath, 'utf-8')); 
+      const filePath = path.join(getGeneratedFilesPath(), filename); 
+      
+      if (!fs.existsSync(filePath)) { 
+        return { success: false, error: 'File not found' }; 
+      } 
+      
+      const exists = project.files.some(f => f.name === filename || f.path === filePath); 
+      if (!exists) { 
+        project.files.push({ 
+          name: filename, 
+          path: filePath, 
+          type: 'md', 
+          addedAt: new Date().toISOString(), 
+          source: 'zenith' 
+        }); 
+        await fs.promises.writeFile(projectPath, JSON.stringify(project, null, 2)); 
+      } 
+      return { success: true, files: project.files }; 
+    } catch (error) { 
+      console.error('Add file to project error:', error); 
+      return { success: false, error: error.message }; 
+    } 
+  });
+  
+  ipcMain.handle('project:add-files', async (e, projectId) => { 
+    const r = await dialog.showOpenDialog(mainWindow, { properties: ['openFile', 'multiSelections'] }); 
+    if (!r.canceled) { 
+      const p = path.join(getProjectsPath(), `${projectId}.json`); 
+      const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); 
+      const n = r.filePaths.map(x => ({ path: x, name: path.basename(x), type: path.extname(x).substring(1) })); 
+      d.files.push(...n.filter(f => !d.files.some(ex => ex.path === f.path))); 
+      await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); 
+      return d.files; 
+    } 
+    return null; 
+  });
+
+  ipcMain.handle('project:add-folder', async (e, projectId) => { 
+    const r = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] }); 
+    if (!r.canceled && r.filePaths.length > 0) { 
+      const folderPath = r.filePaths[0]; 
+      const allFiles = await scanDirectory(folderPath); 
+      const p = path.join(getProjectsPath(), `${projectId}.json`); 
+      const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); 
+      const newFiles = allFiles.filter(f => !d.files.some(existing => existing.path === f.path)); 
+      d.files.push(...newFiles); 
+      d.rootPath = folderPath; 
+      await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); 
+      return d.files; 
+    } 
+    return null; 
+  });
+
+  ipcMain.handle('project:add-url', async (e, { projectId, url }) => { 
+    try { 
+      const cheerio = loadCheerio(); 
+      const response = await fetch(url); 
+      const html = await response.text(); 
+      const $ = cheerio.load(html); 
+      $('script, style, nav, footer, iframe').remove(); 
+      const content = $('body').text().replace(/\s\s+/g, ' ').trim(); 
+      const filename = `web-${Date.now()}.txt`; 
+      await fs.promises.writeFile(path.join(getCachePath(), filename), content, 'utf-8'); 
+      const p = path.join(getProjectsPath(), `${projectId}.json`); 
+      const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); 
+      d.files.push({ path: url, name: $('title').text() || url, type: 'url', cacheFile: filename }); 
+      await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); 
+      return d.files; 
+    } catch (e) { 
+      throw new Error("Scrape Failed"); 
+    } 
+  });
+
+  ipcMain.handle('agent:deep-research', async (e, { projectId, url }) => { 
+    try { 
+      const cheerio = loadCheerio(); 
+      const response = await fetch(url); 
+      const html = await response.text(); 
+      const $ = cheerio.load(html); 
+      $('script, style, nav, footer, iframe').remove(); 
+      const content = $('body').text().replace(/\s\s+/g, ' ').trim().slice(0, 15000); 
+      return content; 
+    } catch (e) { 
+      throw new Error("Research Failed"); 
+    } 
+  });
+
+  ipcMain.handle('project:scaffold', async (e, { projectId, structure }) => { 
+    const p = path.join(getProjectsPath(), `${projectId}.json`); 
+    if (!fs.existsSync(p)) throw new Error("Project not found"); 
+    const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); 
+    if (!d.rootPath) throw new Error("NO_ROOT_PATH"); 
+    const root = d.rootPath; 
+    const results = []; 
+    for (const item of structure) { 
+      try { 
+        const fullPath = path.join(root, item.path); 
+        if (!fullPath.startsWith(root)) continue; 
+        if (item.type === 'folder') { 
+          await fs.promises.mkdir(fullPath, { recursive: true }); 
+        } else { 
+          await fs.promises.mkdir(path.dirname(fullPath), { recursive: true }); 
+          await fs.promises.writeFile(fullPath, item.content || '', 'utf-8'); 
+        } 
+        results.push({ success: true, path: item.path }); 
+      } catch (err) { 
+        results.push({ success: false, path: item.path, error: err.message }); 
+      } 
+    } 
+    return results; 
+  });
+
+  // --- SESSION MANAGEMENT ---
+  
+  ipcMain.handle('session:save', async (e, { id, title, messages, date }) => { 
+    const p = path.join(getSessionsPath(), `${id}.json`); 
+    let t = title; 
+    if(fs.existsSync(p)){ 
+      const ex = JSON.parse(await fs.promises.readFile(p,'utf-8')); 
+      if(ex.title && ex.title!=="New Chat" && (!title||title==="New Chat")) t = ex.title; 
+    } 
+    await fs.promises.writeFile(p, JSON.stringify({ id, title:t||"New Chat", messages, date }, null, 2)); 
+    return true; 
+  });
+
+  ipcMain.handle('session:list', async () => { 
+    const d = getSessionsPath(); 
+    const f = await fs.promises.readdir(d); 
+    const s = []; 
+    for(const x of f){ 
+      if(x.endsWith('.json')){ 
+        try{ 
+          const j=JSON.parse(await fs.promises.readFile(path.join(d,x),'utf-8')); 
+          s.push({id:j.id, title:j.title, date:j.date}); 
+        }catch(e){} 
+      } 
+    } 
+    return s.sort((a,b)=>new Date(b.date)-new Date(a.date)); 
+  });
+
   ipcMain.handle('session:load', async (e, id) => JSON.parse(await fs.promises.readFile(path.join(getSessionsPath(), `${id}.json`), 'utf-8')));
-  ipcMain.handle('session:delete', async (e, id) => { await fs.promises.unlink(path.join(getSessionsPath(), `${id}.json`)); return true; });
-  ipcMain.handle('session:rename', async (e, { id, title }) => { const p = path.join(getSessionsPath(), `${id}.json`); if(fs.existsSync(p)){ const c = JSON.parse(await fs.promises.readFile(p,'utf-8')); c.title = title; await fs.promises.writeFile(p, JSON.stringify(c,null,2)); return true; } return false; });
-  ipcMain.handle('calendar:load', async () => { try { if (fs.existsSync(getCalendarPath())) return JSON.parse(await fs.promises.readFile(getCalendarPath(), 'utf-8')); return []; } catch (e) { return []; } });
-  ipcMain.handle('calendar:save', async (e, events) => { try { await fs.promises.writeFile(getCalendarPath(), JSON.stringify(events, null, 2)); return true; } catch (e) { return false; } });
-  ipcMain.handle('project:save-dossier', async (e, { id, dossier }) => { const p = path.join(getProjectsPath(), `${id}.json`); if (fs.existsSync(p)) { const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); d.dossier = dossier; await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); return d; } return null; });
 
-  ipcMain.handle('project:generate-graph', async (e, projectId) => { const p = path.join(getProjectsPath(), `${projectId}.json`); if (!fs.existsSync(p)) return { nodes: [], links: [] }; const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); const nodes = []; d.files.forEach((file) => nodes.push({ id: file.name, group: file.type, path: file.path })); return { nodes, links: [] }; });
-  ipcMain.handle('git:status', async (e, projectId) => { const p = path.join(getProjectsPath(), `${projectId}.json`); if (!fs.existsSync(p)) return null; const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); return d.rootPath ? await gitHandler.getStatus(d.rootPath) : null; });
-  ipcMain.handle('git:diff', async (e, projectId) => { const p = path.join(getProjectsPath(), `${projectId}.json`); const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); return d.rootPath ? await gitHandler.getDiff(d.rootPath) : ""; });
+  ipcMain.handle('session:delete', async (e, id) => { 
+    await fs.promises.unlink(path.join(getSessionsPath(), `${id}.json`)); 
+    return true; 
+  });
 
+  ipcMain.handle('session:rename', async (e, { id, title }) => { 
+    const p = path.join(getSessionsPath(), `${id}.json`); 
+    if(fs.existsExists(p)){ 
+      const c = JSON.parse(await fs.promises.readFile(p,'utf-8')); 
+      c.title = title; 
+      await fs.promises.writeFile(p, JSON.stringify(c,null,2)); 
+      return true; 
+    } 
+    return false; 
+  });
+
+  // --- CALENDAR ---
+  
+  ipcMain.handle('calendar:load', async () => { 
+    try { 
+      if (fs.existsSync(getCalendarPath())) return JSON.parse(await fs.promises.readFile(getCalendarPath(), 'utf-8')); 
+      return []; 
+    } catch (e) { 
+      return []; 
+    } 
+  });
+
+  ipcMain.handle('calendar:save', async (e, events) => { 
+    try { 
+      await fs.promises.writeFile(getCalendarPath(), JSON.stringify(events, null, 2)); 
+      return true; 
+    } catch (e) { 
+      return false; 
+    } 
+  });
+
+  // --- PROJECT EXTRAS ---
+  
+  ipcMain.handle('project:save-dossier', async (e, { id, dossier }) => { 
+    const p = path.join(getProjectsPath(), `${id}.json`); 
+    if (fs.existsSync(p)) { 
+      const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); 
+      d.dossier = dossier; 
+      await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); 
+      return d; 
+    } 
+    return null; 
+  });
+
+  ipcMain.handle('project:generate-graph', async (e, projectId) => { 
+    const p = path.join(getProjectsPath(), `${projectId}.json`); 
+    if (!fs.existsSync(p)) return { nodes: [], links: [] }; 
+    const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); 
+    const nodes = []; 
+    d.files.forEach((file) => nodes.push({ id: file.name, group: file.type, path: file.path })); 
+    return { nodes, links: [] }; 
+  });
+
+  // --- GIT INTEGRATION ---
+  
+  ipcMain.handle('git:status', async (e, projectId) => { 
+    const p = path.join(getProjectsPath(), `${projectId}.json`); 
+    if (!fs.existsSync(p)) return null; 
+    const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); 
+    return d.rootPath ? await gitHandler.getStatus(d.rootPath) : null; 
+  });
+
+  ipcMain.handle('git:diff', async (e, projectId) => { 
+    const p = path.join(getProjectsPath(), `${projectId}.json`); 
+    const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); 
+    return d.rootPath ? await gitHandler.getDiff(d.rootPath) : ""; 
+  });
+
+  // --- OLLAMA AI INTEGRATION ---
+  
   ipcMain.on('ollama:stream-prompt', async (event, { prompt, model, contextFiles, systemPrompt, settings, images, documentContext }) => { 
     const config = settings || DEFAULT_SETTINGS; 
     let baseUrl = (config.ollamaUrl || "http://127.0.0.1:11434").replace(/\/$/, '').replace('localhost', '127.0.0.1'); 
@@ -401,17 +844,134 @@ app.whenReady().then(() => {
     req.write(JSON.stringify(requestBody)); 
     req.end(); 
   });
-  ipcMain.handle('ollama:generate-json', async (e, { prompt, model, settings, projectId }) => { const config = settings || DEFAULT_SETTINGS; let baseUrl = (config.ollamaUrl || "http://127.0.0.1:11434").replace(/\/$/, '').replace('localhost', '127.0.0.1'); let selectedModel = model || config.defaultModel; if(!selectedModel) { try { const r = await fetch(`${baseUrl}/api/tags`); const d = await r.json(); if(d.models?.length) selectedModel = d.models[0].name; } catch(e){} } let contextStr = ""; if (projectId) { const p = path.join(getProjectsPath(), `${projectId}.json`); if (fs.existsSync(p)) { const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); contextStr = await readProjectFiles(d.files || []); } } const fullPrompt = contextStr ? `CONTEXT:\n${contextStr}\n\nTASK: ${prompt}` : prompt; try { const r = await fetch(`${baseUrl}/api/generate`, { method:'POST', body:JSON.stringify({ model:selectedModel, prompt: fullPrompt + "\n\nRETURN ONLY RAW JSON.", format:'json', stream:false }) }); const j = await r.json(); let raw = j.response.trim(); if (raw.startsWith('```json')) raw = raw.replace(/^```json\s*/, '').replace(/\s*```$/, ''); else if (raw.startsWith('```')) raw = raw.replace(/^```\s*/, '').replace(/\s*```$/, ''); return JSON.parse(raw); } catch(err) { return { error: "Failed to parse JSON" }; } });
-  ipcMain.handle('ollama:completion', async (e, { prompt, model, settings }) => { const config = settings || DEFAULT_SETTINGS; let baseUrl = (config.ollamaUrl || "http://127.0.0.1:11434").replace(/\/$/, '').replace('localhost', '127.0.0.1'); let selectedModel = model || config.defaultModel; let availableModels = []; try { const tagReq = await fetch(`${baseUrl}/api/tags`); if (tagReq.ok) { const tagData = await tagReq.json(); availableModels = tagData.models?.map(m => m.name) || []; } } catch (connErr) { console.error("Ollama Connection Failed:", connErr); return "Error: Could not connect to Ollama."; } if (availableModels.length > 0) { const exactMatch = availableModels.find(m => m === selectedModel); if (!exactMatch) { const fallback = availableModels.find(m => !m.includes('embed')) || availableModels[0]; console.log(`Requested model '${selectedModel}' not found. Falling back to '${fallback}'`); selectedModel = fallback; } } else { return "Error: No models found in Ollama. Please run 'ollama pull llama3'."; } try { const r = await fetch(`${baseUrl}/api/generate`, { method: 'POST', body: JSON.stringify({ model: selectedModel, prompt: prompt, stream: false, options: { stop: ['<|endoftext|>', '<|user|>'], temperature: 0.3 } }) }); if (!r.ok) { const errText = await r.text(); throw new Error(`Ollama API Error (${r.status}): ${errText || r.statusText}`); } const j = await r.json(); return j.response; } catch(err) { console.error("Completion Error:", err); return `Error: ${err.message}`; } });
 
-  ipcMain.handle('ollama:status', async (e, url) => { try { const r = await fetch(`${url}/api/tags`); return r.status === 200; } catch(e){ return false; } });
-  ipcMain.handle('ollama:models', async (e, url) => { try { const r = await fetch(`${url}/api/tags`); const d = await r.json(); return d.models.map(m=>m.name); } catch(e){ return []; } });
+  ipcMain.handle('ollama:generate-json', async (e, { prompt, model, settings, projectId }) => { 
+    const config = settings || DEFAULT_SETTINGS; 
+    let baseUrl = (config.ollamaUrl || "http://127.0.0.1:11434").replace(/\/$/, '').replace('localhost', '127.0.0.1'); 
+    let selectedModel = model || config.defaultModel; 
+    
+    if(!selectedModel) { 
+      try { 
+        const r = await fetch(`${baseUrl}/api/tags`); 
+        const d = await r.json(); 
+        if(d.models?.length) selectedModel = d.models[0].name; 
+      } catch(e){} 
+    } 
+    
+    let contextStr = ""; 
+    if (projectId) { 
+      const p = path.join(getProjectsPath(), `${projectId}.json`); 
+      if (fs.existsSync(p)) { 
+        const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); 
+        contextStr = await readProjectFiles(d.files || []); 
+      } 
+    } 
+    
+    const fullPrompt = contextStr ? `CONTEXT:\n${contextStr}\n\nTASK: ${prompt}` : prompt; 
+    
+    try { 
+      const r = await fetch(`${baseUrl}/api/generate`, { 
+        method:'POST', 
+        body:JSON.stringify({ 
+          model:selectedModel, 
+          prompt: fullPrompt + "\n\nRETURN ONLY RAW JSON.", 
+          format:'json', 
+          stream:false 
+        }) 
+      }); 
+      const j = await r.json(); 
+      let raw = j.response.trim(); 
+      if (raw.startsWith('```json')) raw = raw.replace(/^```json\s*/, '').replace(/\s*```$/, ''); 
+      else if (raw.startsWith('```')) raw = raw.replace(/^```\s*/, '').replace(/\s*```$/, ''); 
+      return JSON.parse(raw); 
+    } catch(err) { 
+      return { error: "Failed to parse JSON" }; 
+    } 
+  });
 
-  app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  ipcMain.handle('ollama:completion', async (e, { prompt, model, settings }) => { 
+    const config = settings || DEFAULT_SETTINGS; 
+    let baseUrl = (config.ollamaUrl || "http://127.0.0.1:11434").replace(/\/$/, '').replace('localhost', '127.0.0.1'); 
+    let selectedModel = model || config.defaultModel; 
+    let availableModels = []; 
+    
+    try { 
+      const tagReq = await fetch(`${baseUrl}/api/tags`); 
+      if (tagReq.ok) { 
+        const tagData = await tagReq.json(); 
+        availableModels = tagData.models?.map(m => m.name) || []; 
+      } 
+    } catch (connErr) { 
+      console.error("Ollama Connection Failed:", connErr); 
+      return "Error: Could not connect to Ollama."; 
+    } 
+    
+    if (availableModels.length > 0) { 
+      const exactMatch = availableModels.find(m => m === selectedModel); 
+      if (!exactMatch) { 
+        const fallback = availableModels.find(m => !m.includes('embed')) || availableModels[0]; 
+        console.log(`Requested model '${selectedModel}' not found. Falling back to '${fallback}'`); 
+        selectedModel = fallback; 
+      } 
+    } else { 
+      return "Error: No models found in Ollama. Please run 'ollama pull llama3'."; 
+    } 
+    
+    try { 
+      const r = await fetch(`${baseUrl}/api/generate`, { 
+        method: 'POST', 
+        body: JSON.stringify({ 
+          model: selectedModel, 
+          prompt: prompt, 
+          stream: false, 
+          options: { 
+            stop: ['<|endoftext|>', '<|user|>'], 
+            temperature: 0.3 
+          } 
+        }) 
+      }); 
+      
+      if (!r.ok) { 
+        const errText = await r.text(); 
+        throw new Error(`Ollama API Error (${r.status}): ${errText || r.statusText}`); 
+      } 
+      
+      const j = await r.json(); 
+      return j.response; 
+    } catch(err) { 
+      console.error("Completion Error:", err); 
+      return `Error: ${err.message}`; 
+    } 
+  });
+
+  ipcMain.handle('ollama:status', async (e, url) => { 
+    try { 
+      const r = await fetch(`${url}/api/tags`); 
+      return r.status === 200; 
+    } catch(e){ 
+      return false; 
+    } 
+  });
+
+  ipcMain.handle('ollama:models', async (e, url) => { 
+    try { 
+      const r = await fetch(`${url}/api/tags`); 
+      const d = await r.json(); 
+      return d.models.map(m=>m.name); 
+    } catch(e){ 
+      return []; 
+    } 
+  });
+
+  app.on("activate", () => { 
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(); 
+  });
   
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
   });
 });
 
-app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
+app.on("window-all-closed", () => { 
+  if (process.platform !== "darwin") app.quit(); 
+});

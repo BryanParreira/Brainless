@@ -9,7 +9,10 @@ const messagesReducer = (state, action) => {
       return [...state, { 
         role: 'user', 
         content: action.payload.text,
-        attachments: action.payload.attachments || []
+        // CRITICAL: Store attachments for DISPLAY only, not for sending to AI
+        attachments: action.payload.attachments || [],
+        // Flag to indicate attachments were already processed
+        attachmentsProcessed: true
       }];
     case 'ADD_ASSISTANT_MESSAGE':
       return [...state, { role: 'assistant', content: '' }];
@@ -20,7 +23,11 @@ const messagesReducer = (state, action) => {
         { ...state[state.length - 1], content: state[state.length - 1].content + action.payload }
       ];
     case 'SET_MESSAGES':
-      return action.payload;
+      // When loading old sessions, mark all messages as processed
+      return action.payload.map(msg => ({
+        ...msg,
+        attachmentsProcessed: true
+      }));
     case 'CLEAR_MESSAGES':
       return [];
     default:
@@ -271,42 +278,101 @@ export const LuminaProvider = ({ children }) => {
     }
   }, []);
 
-  // --- CHAT ACTIONS (UPDATED WITH MULTIMODAL SUPPORT) ---
-  const sendMessage = useCallback(async (text, attachments = []) => {
-    if ((!text.trim() && attachments.length === 0) || isLoading || !currentModel) return;
+  // ====================================================================
+  // CRITICAL FIX: sendMessage - Prevent Image Hallucination
+  // ====================================================================
+  const sendMessage = useCallback(async (text, attachments) => {
+    // Normalize attachments to always be an array
+    const normalizedAttachments = Array.isArray(attachments) ? attachments : [];
+    
+    console.log('📨 sendMessage called with:', { 
+      text: text?.slice(0, 50), 
+      attachmentCount: normalizedAttachments.length,
+      isLoading,
+      currentModel,
+      messagesInHistory: messages.length
+    });
 
-    // 1. Process attachments to extract images and document context
+    // Validation
+    if (!text || !text.trim()) {
+      if (normalizedAttachments.length === 0) {
+        console.warn('⚠️ No text or attachments provided');
+        return;
+      }
+    }
+    
+    if (isLoading) {
+      console.warn('⚠️ Already loading, ignoring send');
+      return;
+    }
+    
+    if (!currentModel) {
+      console.error('❌ No model selected');
+      alert('Please select an AI model first');
+      return;
+    }
+
+    // ========================================
+    // STEP 1: Process CURRENT attachments ONLY
+    // ========================================
     let images = [];
     let documentContext = "";
 
-    for (const att of attachments) {
-      if (att.type === 'image') {
-        // Image is already base64 from Workspace component
-        // Remove the data:image/...;base64, prefix for Ollama
-        const base64Data = att.data.split(',')[1];
-        images.push(base64Data);
-      } else if (att.type === 'file') {
-        // For text files, we can read them directly
-        // For now, we'll just note that a file was attached
-        documentContext += `\n--- UPLOADED FILE: ${att.name} ---\n`;
-        // TODO: Add file text extraction when needed
+    if (normalizedAttachments.length > 0) {
+      console.log('📎 Processing NEW attachments for THIS message only');
+      
+      for (const att of normalizedAttachments) {
+        if (att.type === 'image' && att.data) {
+          // Image is already base64 from Workspace component
+          // Remove the data:image/...;base64, prefix for Ollama
+          const base64Data = att.data.split(',')[1];
+          if (base64Data) {
+            images.push(base64Data);
+            console.log('🖼️ Added image to current message context');
+          }
+        } else if (att.type === 'file') {
+          // For text files, note that a file was attached
+          documentContext += `\n--- UPLOADED FILE: ${att.name} ---\n`;
+          console.log('📄 Added file context:', att.name);
+        }
       }
     }
 
-    // 2. Add user message to chat (with attachments for display)
+    // ========================================
+    // STEP 2: Build conversation context (TEXT ONLY, NO IMAGES)
+    // ========================================
+    // Only include recent conversation for context (last 10 messages)
+    // This gives the AI conversation history WITHOUT re-sending old images
+    const conversationHistory = messages.slice(-10).map(msg => {
+      // Strip out any image references, just keep the text
+      const role = msg.role === 'user' ? 'USER' : 'ASSISTANT';
+      return `${role}: ${msg.content}`;
+    }).join('\n\n');
+
+    console.log('📜 Built conversation history (text only, last 10 messages)');
+
+    // ========================================
+    // STEP 3: Add user message with attachments (for DISPLAY only)
+    // ========================================
+    console.log('➕ Adding user message to chat');
     messagesDispatch({ 
       type: 'ADD_USER_MESSAGE', 
       payload: { 
-        text, 
-        attachments 
+        text: text || '', 
+        attachments: normalizedAttachments // Stored for UI display, not sent to AI again
       } 
     });
 
-    // 3. Add empty assistant message
+    // ========================================
+    // STEP 4: Add empty assistant message
+    // ========================================
+    console.log('➕ Adding empty assistant message');
     messagesDispatch({ type: 'ADD_ASSISTANT_MESSAGE' });
     setIsLoading(true);
 
-    // 4. Get project context
+    // ========================================
+    // STEP 5: Get project context (text files only)
+    // ========================================
     let contextFiles = [];
     let systemPrompt = settings.systemPrompt;
     let pid = null;
@@ -316,26 +382,70 @@ export const LuminaProvider = ({ children }) => {
       const liveProject = projects.find(p => p.id === activeProject.id);
       contextFiles = liveProject ? liveProject.files : activeProject.files || [];
       systemPrompt = liveProject?.systemPrompt || settings.systemPrompt;
+      console.log('📁 Using project context:', pid);
     }
 
-    // 5. Build enriched prompt with document context
-    let enrichedPrompt = text;
+    // ========================================
+    // STEP 6: Build enriched prompt with conversation context
+    // ========================================
+    let enrichedPrompt = text || '';
+    
+    // Add conversation history for context continuity
+    if (conversationHistory && messages.length > 0) {
+      enrichedPrompt = `[CONVERSATION HISTORY]\n${conversationHistory}\n\n[CURRENT MESSAGE]\n${enrichedPrompt}`;
+      console.log('💬 Added conversation history for context');
+    }
+    
+    // Add document context if present
     if (documentContext) {
-      enrichedPrompt = `${documentContext}\n\nUSER QUESTION: ${text}`;
+      enrichedPrompt = `${documentContext}\n\n${enrichedPrompt}`;
     }
 
-    // 6. Send to Ollama with images and context
-    window.lumina.sendPrompt(
-      enrichedPrompt,
-      currentModel,
-      contextFiles,
-      systemPrompt,
-      settings,
-      pid,
-      images, // NEW: Images for vision models (llava, bakllava, etc.)
-      documentContext // NEW: Document text context
-    );
-  }, [isLoading, currentModel, activeProject, projects, settings]);
+    // ========================================
+    // CRITICAL: Add instruction to ONLY reference current images
+    // ========================================
+    if (images.length > 0) {
+      // Prepend image instruction at the very beginning
+      enrichedPrompt = `[IMPORTANT: You are being shown ${images.length} NEW image(s) with THIS current message. When the user asks about "the image" or "it", they mean THESE current images. DO NOT reference or mention any images from previous messages in the conversation history. Focus ONLY on these ${images.length} current image(s).]\n\n${enrichedPrompt}`;
+      console.log(`✅ Sending ${images.length} image(s) with ANTI-HALLUCINATION instruction`);
+    } else {
+      console.log('✅ Sending text-only message (no images)');
+      // Even without images, remind AI not to hallucinate about past images
+      if (messages.some(m => m.attachments && m.attachments.length > 0)) {
+        enrichedPrompt = `[NOTE: No images are attached to this message. If the user references "the image" or visual content, they are referring to context from our previous conversation. Do not request file contents or assume there are new images.]\n\n${enrichedPrompt}`;
+        console.log('📝 Added clarification about no new images');
+      }
+    }
+
+    // ========================================
+    // STEP 7: Send to Ollama with ONLY current message's images
+    // ========================================
+    try {
+      console.log('🚀 Calling window.lumina.sendPrompt...');
+      console.log('   - Images:', images.length);
+      console.log('   - Model:', currentModel);
+      console.log('   - Context files:', contextFiles.length);
+      
+      window.lumina.sendPrompt(
+        enrichedPrompt,
+        currentModel,
+        contextFiles,
+        systemPrompt,
+        settings,
+        pid,
+        images, // ONLY images from THIS message, not previous messages
+        documentContext
+      );
+      console.log('✅ Message sent to Ollama successfully');
+    } catch (error) {
+      console.error('❌ Error sending to Ollama:', error);
+      setIsLoading(false);
+      messagesDispatch({ 
+        type: 'APPEND_TO_LAST', 
+        payload: `\n\n**Error:** Failed to send message - ${error.message}` 
+      });
+    }
+  }, [isLoading, currentModel, activeProject, projects, settings, messages]);
 
   const startNewChat = useCallback(async () => {
     if (messages.length > 0) {
@@ -343,17 +453,24 @@ export const LuminaProvider = ({ children }) => {
       await window.lumina.saveSession({ id: sessionId, title, messages, date: new Date().toISOString() });
       setSessions(await window.lumina.getSessions());
     }
+    
+    // CRITICAL: Clear messages to prevent context bleed
     messagesDispatch({ type: 'CLEAR_MESSAGES' });
     setSessionId(uuidv4());
     setIsLoading(false);
     setCurrentView('chat');
+    
+    console.log('🔄 Started new chat - context cleared');
   }, [messages, sessionId]);
 
   const loadSession = useCallback(async (id) => {
     const data = await window.lumina.loadSession(id);
+    // CRITICAL: When loading old sessions, mark attachments as processed
     messagesDispatch({ type: 'SET_MESSAGES', payload: data.messages || [] });
     setSessionId(data.id);
     setCurrentView('chat');
+    
+    console.log('📂 Loaded session:', id);
   }, []);
 
   const deleteSession = useCallback(async (e, id) => {

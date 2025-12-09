@@ -130,6 +130,7 @@ const Callout = ({ children, theme }) => (
 );
 
 const MessageBubble = React.memo(({ msg, theme, fontSize, isStreaming }) => {
+  // Remove <thinking> tags from content
   const mainContent = useMemo(() => {
     let content = msg.content.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim();
     content = content.replace(/<thinking>[\s\S]*$/gi, '');
@@ -162,7 +163,7 @@ const MessageBubble = React.memo(({ msg, theme, fontSize, isStreaming }) => {
           {!isUser && <span className={`text-[9px] ${theme.softBg} ${theme.accentText} px-1.5 py-0.5 rounded border border-white/10 uppercase tracking-wider font-bold`}>AI</span>}
         </div>
         
-        {/* Attachments Display - ONLY for user messages */}
+        {/* CRITICAL FIX: Only show attachments in the message history, NOT sent to AI again */}
         {isUser && msg.attachments && msg.attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2 justify-end">
             {msg.attachments.map((att, idx) => (
@@ -251,8 +252,16 @@ export const Workspace = () => {
   const fileInputRef = useRef(null);
   const dropZoneRef = useRef(null);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [messages, isLoading]);
-  useEffect(() => { if (textareaRef.current) { textareaRef.current.style.height = 'auto'; textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 150) + 'px'; } }, [input]);
+  useEffect(() => { 
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); 
+  }, [messages, isLoading]);
+  
+  useEffect(() => { 
+    if (textareaRef.current) { 
+      textareaRef.current.style.height = 'auto'; 
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 150) + 'px'; 
+    } 
+  }, [input]);
 
   // Handle file selection
   const handleFileSelect = useCallback((files) => {
@@ -295,43 +304,74 @@ export const Workspace = () => {
     setAttachments(prev => prev.filter((_, i) => i !== index));
   }, []);
 
+  // CRITICAL FIX: Process attachments properly and clear them after sending
   const handleSend = useCallback(async () => { 
-    if (!input.trim() && attachments.length === 0) return; 
+    if (!input.trim() && attachments.length === 0) {
+      console.log('⚠️ Empty message, not sending');
+      return;
+    }
+    
+    console.log('🚀 Workspace handleSend - attachments:', attachments.length);
     
     const finalPrompt = COMMAND_REGISTRY[input.trim()] || input;
     
-    // Convert attachments to base64 for images
-    const processedAttachments = await Promise.all(
-      attachments.map(async (att) => {
-        if (att.file.type.startsWith('image/')) {
-          return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              resolve({
-                type: 'image',
-                name: att.name,
-                data: reader.result
-              });
-            };
-            reader.readAsDataURL(att.file);
-          });
-        } else {
-          return {
-            type: 'file',
-            name: att.name,
-            data: att.file
-          };
-        }
-      })
-    );
+    // Process attachments - ONLY for THIS message
+    let processedAttachments = [];
     
-    // Send message with attachments
+    if (attachments.length > 0) {
+      console.log('📎 Processing attachments...');
+      processedAttachments = await Promise.all(
+        attachments.map(async (att) => {
+          if (att.file.type.startsWith('image/')) {
+            return new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                console.log('✅ Image processed:', att.name);
+                resolve({
+                  type: 'image',
+                  name: att.name,
+                  data: reader.result
+                });
+              };
+              reader.readAsDataURL(att.file);
+            });
+          } else {
+            // For non-image files, could extract text here
+            console.log('📄 File attached:', att.name);
+            return {
+              type: 'file',
+              name: att.name,
+              data: att.file
+            };
+          }
+        })
+      );
+      
+      console.log('✅ Processed attachments:', processedAttachments.length);
+    }
+    
+    // CRITICAL: Send message with attachments ONLY for this turn
+    // The context should NOT include images from previous messages
+    console.log('📤 Calling sendMessage with:', { 
+      promptLength: finalPrompt.length, 
+      attachments: processedAttachments.length 
+    });
+    
     sendMessage(finalPrompt, processedAttachments); 
+    
+    // CRITICAL: Clear input and attachments IMMEDIATELY after sending
     setInput(""); 
     setAttachments([]);
+    
+    console.log('✅ Cleared input and attachments');
   }, [input, attachments, sendMessage]);
 
-  const handleKeyDown = useCallback((e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }, [handleSend]);
+  const handleKeyDown = useCallback((e) => { 
+    if (e.key === 'Enter' && !e.shiftKey) { 
+      e.preventDefault(); 
+      handleSend(); 
+    } 
+  }, [handleSend]);
 
   if (!isOllamaRunning) {
     return (

@@ -1,9 +1,10 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { useLumina } from '../context/LuminaContext.jsx';
 import { 
   Plus, MessageSquare, Trash2, Folder, Settings as SettingsIcon, 
   Sliders, Edit2, Check, Calendar, X, Brain, Layout, PenTool,
-  Clock, AlertCircle, Home, ChevronDown, Pin, Search
+  Clock, AlertCircle, Home, ChevronDown, Pin, Search, FileText,
+  MoreVertical
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -61,8 +62,103 @@ export const Sidebar = () => {
   // Search/Filter state
   const [searchQuery, setSearchQuery] = useState("");
   
+  // Zenith Files State
+  const [zenithFiles, setZenithFiles] = useState([]);
+  const [loadingZenithFiles, setLoadingZenithFiles] = useState(false);
+  const [activeZenithFile, setActiveZenithFile] = useState(null);
+
   // Collapsible sections
   const [collapsedSections, setCollapsedSections] = useState(new Set());
+
+  // --- LOAD ZENITH FILES ---
+  const loadZenithFiles = useCallback(async () => {
+    console.log('📁 Loading Zenith files...');
+    setLoadingZenithFiles(true);
+    try {
+      const files = await window.lumina.listFiles();
+      console.log('📦 Files received:', files);
+      
+      // Filter for markdown files (files is an array of objects with 'name' property)
+      const mdFiles = files.filter(f => f.name && f.name.endsWith('.md'));
+      console.log('📝 Markdown files found:', mdFiles.length);
+      
+      const fileData = [];
+      
+      for (const fileObj of mdFiles) {
+        const filename = fileObj.name;
+        console.log(`🔍 Processing file: ${filename}`);
+        
+        try {
+          // Try to load metadata
+          const metaFilename = `${filename}.meta.json`;
+          let metadata = null;
+          
+          try {
+            const metaContent = await window.lumina.readFile(metaFilename);
+            metadata = JSON.parse(metaContent);
+            console.log(`✅ Metadata loaded for ${filename}`);
+          } catch (metaErr) {
+            console.log(`⚠️ No metadata for ${filename}, creating default`);
+            // If no metadata, create basic info
+            metadata = {
+              title: filename.replace('.md', '').replace(/_/g, ' '),
+              filename: filename,
+              lastModified: fileObj.modified || new Date().toISOString(),
+              wordCount: 0
+            };
+          }
+          
+          fileData.push(metadata);
+        } catch (err) {
+          console.error(`❌ Error loading ${filename}:`, err);
+        }
+      }
+      
+      // Sort by last modified (newest first)
+      fileData.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
+      
+      console.log(`✅ Loaded ${fileData.length} Zenith files`);
+      setZenithFiles(fileData);
+    } catch (error) {
+      console.error('❌ Error loading Zenith files:', error);
+      setZenithFiles([]); // Set empty array on error
+    } finally {
+      setLoadingZenithFiles(false);
+    }
+  }, []);
+
+  // Load files on component mount and keep them loaded
+  useEffect(() => {
+    loadZenithFiles();
+  }, [loadZenithFiles]);
+
+  // Load files when Zenith tab becomes active (refresh view)
+  useEffect(() => {
+    if (activeTab === 'zenith') {
+      loadZenithFiles();
+    }
+  }, [activeTab, loadZenithFiles]);
+
+  // Listen for file save events and always refresh
+  useEffect(() => {
+    const handleFileSaved = (e) => {
+      console.log('📡 zenith-file-saved event received:', e.detail);
+      const { filename } = e.detail || {};
+      if (filename) {
+        console.log('📝 Setting active file:', filename);
+        setActiveZenithFile(filename); // Set the saved file as active
+      }
+      console.log('🔄 Refreshing file list...');
+      loadZenithFiles(); // Always refresh, regardless of active tab
+    };
+
+    console.log('👂 Listening for zenith-file-saved events');
+    window.addEventListener('zenith-file-saved', handleFileSaved);
+    return () => {
+      console.log('🔇 Removing zenith-file-saved listener');
+      window.removeEventListener('zenith-file-saved', handleFileSaved);
+    };
+  }, [loadZenithFiles]);
 
   // --- GET TODAY'S EVENTS ---
   const todaysEvents = useMemo(() => {
@@ -132,6 +228,17 @@ export const Sidebar = () => {
     );
   }, [projects, searchQuery]);
 
+  // --- FILTER ZENITH FILES ---
+  const filteredZenithFiles = useMemo(() => {
+    if (!searchQuery.trim()) return zenithFiles;
+    
+    const query = searchQuery.toLowerCase();
+    return zenithFiles.filter(file => 
+      file.title.toLowerCase().includes(query) ||
+      file.filename.toLowerCase().includes(query)
+    );
+  }, [zenithFiles, searchQuery]);
+
   // --- STATS FOR HOME TAB ---
   const stats = useMemo(() => {
     const activeProjects = projects.filter(p => p.files?.length > 0).length;
@@ -145,9 +252,10 @@ export const Sidebar = () => {
       todayEvents: todaysEvents.length,
       activeProjects,
       recentChats,
-      totalProjects: projects.length
+      totalProjects: projects.length,
+      zenithDocs: zenithFiles.length
     };
-  }, [projects, sessions, todaysEvents]);
+  }, [projects, sessions, todaysEvents, zenithFiles]);
 
   // --- TAB SWITCHER LOGIC ---
   const switchTab = useCallback((tab) => {
@@ -243,6 +351,81 @@ export const Sidebar = () => {
     }
   }, [pinSession, unpinSession]);
 
+  // --- ZENITH FILE ACTIONS ---
+  const handleLoadZenithFile = useCallback((filename) => {
+    console.log('📂 Loading Zenith file:', filename);
+    setCurrentView('zenith');
+    setActiveZenithFile(filename); // Track which file is active
+    // Dispatch event to load file in Zenith
+    window.dispatchEvent(new CustomEvent('zenith-load-file', { 
+      detail: { filename } 
+    }));
+    console.log('✅ Load event dispatched');
+  }, [setCurrentView]);
+
+  const handleNewZenithFile = useCallback(() => {
+    console.log('➕ Creating new Zenith file');
+    setCurrentView('zenith');
+    setActiveZenithFile(null); // Clear active file for new document
+    window.dispatchEvent(new CustomEvent('zenith-new-file'));
+    console.log('✅ New file event dispatched');
+  }, [setCurrentView]);
+
+  const handleDeleteZenithFile = useCallback(async (e, filename) => {
+    e.stopPropagation();
+    
+    console.log('🗑️ Attempting to delete:', filename);
+    
+    if (!window.confirm(`Delete "${filename}"?`)) {
+      console.log('❌ Delete cancelled by user');
+      return;
+    }
+    
+    try {
+      const result = await window.lumina.deleteFile(filename);
+      console.log('🗑️ Delete result:', result);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Delete failed');
+      }
+      
+      console.log('✅ File deleted successfully');
+      
+      // Clear active file if we deleted it
+      if (activeZenithFile === filename) {
+        console.log('🔄 Deleted file was active, creating new document');
+        setActiveZenithFile(null);
+        // Optionally create a new empty document
+        handleNewZenithFile();
+      }
+      
+      // Reload file list
+      console.log('🔄 Reloading file list...');
+      loadZenithFiles();
+    } catch (error) {
+      console.error('❌ Error deleting file:', error);
+      alert(`Failed to delete file: ${error.message}`);
+    }
+  }, [loadZenithFiles, activeZenithFile, handleNewZenithFile]);
+
+  // Format date for display
+  const formatDate = (isoDate) => {
+    if (!isoDate) return '';
+    const date = new Date(isoDate);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
   return (
     <div className="flex flex-col h-full rounded-2xl glass-panel overflow-hidden transition-colors duration-500 bg-[#050505]/80 backdrop-blur-xl border border-white/5">
       <div className="p-4 pb-2">
@@ -285,6 +468,14 @@ export const Sidebar = () => {
                 <div className="text-2xl font-bold text-white mb-1">{stats.activeProjects}</div>
                 <div className="text-[9px] text-gray-500 uppercase tracking-wider">Projects</div>
               </div>
+            </div>
+
+            <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+              <div className="flex justify-between items-center mb-2">
+                <div className="text-[9px] text-gray-500 uppercase tracking-wider">Documents</div>
+                <div className="text-xl font-bold text-white">{stats.zenithDocs}</div>
+              </div>
+              <div className="text-[8px] text-gray-600">Zenith essays & notes</div>
             </div>
 
             <div className="flex flex-col items-center justify-center py-8 text-center opacity-60">
@@ -620,16 +811,122 @@ export const Sidebar = () => {
           </div>
         )}
 
-        {/* CANVAS/ZENITH PLACEHOLDERS (Optional info) */}
-        {['canvas', 'zenith'].includes(activeTab) && (
+        {/* CANVAS PLACEHOLDER */}
+        {activeTab === 'canvas' && (
             <div className="flex flex-col items-center justify-center h-40 text-center opacity-50 px-4">
-                {activeTab === 'canvas' && <Layout size={32} className="mb-2 text-gray-500"/>}
-                {activeTab === 'zenith' && <PenTool size={32} className="mb-2 text-gray-500"/>}
-                <p className="text-[10px] text-gray-400 font-medium">
-                    {activeTab === 'canvas' ? 'Canvas Active' : 'Focus Mode Active'}
-                </p>
+                <Layout size={32} className="mb-2 text-gray-500"/>
+                <p className="text-[10px] text-gray-400 font-medium">Canvas Active</p>
                 <p className="text-[9px] text-gray-600 mt-1">Tools are open in the main view.</p>
             </div>
+        )}
+
+        {/* ZENITH FILES LIST */}
+        {activeTab === 'zenith' && (
+          <>
+            <button 
+              onClick={handleNewZenithFile} 
+              className={`group flex w-full items-center justify-between gap-2 rounded-lg border border-white/5 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white px-3 py-2 text-[10px] font-bold uppercase tracking-wider transition-all mb-3`}
+            >
+              <div className="flex items-center gap-2">
+                <Plus size={10} className={theme.accentText} />
+                New Document
+              </div>
+              <kbd className="text-[8px] text-gray-700 font-mono">⌘N</kbd>
+            </button>
+
+            {/* Search Filter */}
+            <div className="mb-3 relative">
+              <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" />
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter documents..."
+                className="w-full bg-black/30 border border-white/5 rounded-lg pl-8 pr-8 py-1.5 text-[10px] text-white placeholder-gray-600 focus:border-white/20 focus:outline-none transition-colors"
+              />
+              {searchQuery && (
+                <button 
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-white transition-colors"
+                >
+                  <X size={10} />
+                </button>
+              )}
+            </div>
+
+            {/* Loading State */}
+            {loadingZenithFiles && <SkeletonLoader />}
+
+            {/* Empty State */}
+            {!loadingZenithFiles && zenithFiles.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-12 px-4">
+                <FileText size={24} className="text-gray-700 mb-3" />
+                <p className="text-[10px] text-gray-500 mb-3 text-center">
+                  No documents yet
+                </p>
+                <button 
+                  onClick={handleNewZenithFile}
+                  className="text-[9px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors"
+                >
+                  <Plus size={10} /> Create your first document
+                </button>
+              </div>
+            )}
+
+            {/* Files List */}
+            {!loadingZenithFiles && filteredZenithFiles.length > 0 && (
+              <div className="space-y-2">
+                {filteredZenithFiles.map((file, index) => (
+                  <div
+                    key={file.filename + index}
+                    onClick={() => handleLoadZenithFile(file.filename)}
+                    className={`group cursor-pointer rounded-lg border p-3 transition-all ${
+                      activeZenithFile === file.filename
+                        ? `${theme.softBg} text-white border-white/5 shadow-md`
+                        : 'border-white/5 hover:bg-white/5 hover:border-white/10 text-gray-500 hover:text-gray-300'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="flex items-start gap-2 flex-1">
+                        <FileText 
+                          size={12} 
+                          className={`${activeZenithFile === file.filename ? theme.accentText : 'text-gray-500'} mt-0.5 flex-shrink-0`} 
+                        />
+                        <div className="flex-1 min-w-0">
+                          <h4 className={`text-[11px] font-bold truncate mb-0.5 ${
+                            activeZenithFile === file.filename ? 'text-white' : 'text-gray-300'
+                          }`}>
+                            {file.title}
+                          </h4>
+                          <div className={`flex items-center gap-2 text-[9px] ${
+                            activeZenithFile === file.filename ? 'text-gray-400' : 'text-gray-600'
+                          }`}>
+                            <span>{file.wordCount || 0} words</span>
+                            {file.writingMode && (
+                              <>
+                                <span>•</span>
+                                <span className="capitalize">{file.writingMode}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => handleDeleteZenithFile(e, file.filename)}
+                        className="opacity-0 group-hover:opacity-100 p-1 text-gray-500 hover:text-red-400 transition-all"
+                      >
+                        <Trash2 size={10} />
+                      </button>
+                    </div>
+                    <div className={`text-[8px] font-mono ${
+                      activeZenithFile === file.filename ? 'text-gray-600' : 'text-gray-700'
+                    }`}>
+                      {formatDate(file.lastModified)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 
