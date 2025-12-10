@@ -1,7 +1,7 @@
 {
   "name": "brainless",
   "private": true,
-  "version": "1.0.36",
+  "version": "1.0.37",
   "type": "module",
   "main": "electron/main.cjs",
   "description": "Advanced AI Research & Engineering Environment",
@@ -52,13 +52,13 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.omnilab.app",
-    "productName": "OmniLab",
+    "appId": "com.Brainless.app",
+    "productName": "Brainless",
     "publish": [
       {
         "provider": "github",
         "owner": "BryanParreira",
-        "repo": "OmniLab"
+        "repo": "Brainless"
       }
     ],
     "directories": {
@@ -81,13 +81,6 @@
       "target": [
         {
           "target": "dmg",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
-        },
-        {
-          "target": "zip",
           "arch": [
             "arm64",
             "x64"
