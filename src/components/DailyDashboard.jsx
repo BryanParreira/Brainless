@@ -11,11 +11,22 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 // --- HELPER: TIME AGO ---
 const getTimeAgo = (date) => {
-  const seconds = Math.floor((new Date() - date) / 1000);
-  if (seconds < 60) return 'Just now';
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  return `${Math.floor(seconds / 86400)}d ago`;
+  if (!date) return 'Unknown';
+  
+  try {
+    const dateObj = date instanceof Date ? date : new Date(date);
+    if (isNaN(dateObj.getTime())) return 'Unknown';
+    
+    const seconds = Math.floor((new Date() - dateObj) / 1000);
+    if (seconds < 60) return 'Just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+    return `${Math.floor(seconds / 604800)}w ago`;
+  } catch (error) {
+    console.error('Error calculating time ago:', error);
+    return 'Unknown';
+  }
 };
 
 // --- STAT CARD (Enhanced) ---
@@ -33,8 +44,8 @@ const StatCard = ({ icon: Icon, label, value, trend, trendUp, onClick, theme, gr
     
     <div className="relative z-10">
       <div className="flex items-start justify-between mb-4">
-        <div className={`p-3 rounded-xl ${theme.softBg} backdrop-blur-sm group-hover:scale-110 transition-transform shadow-lg`}>
-          <Icon size={22} className={theme.accentText} />
+        <div className={`p-3 rounded-xl ${theme?.softBg || 'bg-white/10'} backdrop-blur-sm group-hover:scale-110 transition-transform shadow-lg`}>
+          <Icon size={22} className={theme?.accentText || 'text-blue-400'} />
         </div>
         {trend && (
           <div className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold ${
@@ -59,51 +70,57 @@ const StatCard = ({ icon: Icon, label, value, trend, trendUp, onClick, theme, gr
 );
 
 // --- TODAY'S EVENT ITEM (Enhanced) ---
-const EventItem = ({ event, index }) => (
-  <motion.div
-    initial={{ opacity: 0, x: -20 }}
-    animate={{ opacity: 1, x: 0 }}
-    transition={{ delay: index * 0.05 }}
-    whileHover={{ scale: 1.02, x: 4 }}
-    className="flex items-center gap-3 p-4 rounded-xl bg-gradient-to-r from-white/5 to-transparent hover:from-white/10 hover:to-white/5 transition-all border border-white/5 hover:border-white/10 group cursor-pointer"
-  >
-    <div className={`w-1.5 h-14 rounded-full ${
-      event.priority === 'high' ? 'bg-gradient-to-b from-red-500 to-red-600' : 
-      event.priority === 'medium' ? 'bg-gradient-to-b from-amber-500 to-orange-600' : 
-      'bg-gradient-to-b from-blue-500 to-purple-600'
-    } shadow-lg`}></div>
-    <div className="flex-1 min-w-0">
-      <div className="flex items-center gap-2 mb-1.5">
-        <span className="text-sm font-bold text-white truncate group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-gray-400 transition-all">
-          {event.title}
-        </span>
-        {event.priority === 'high' && (
-          <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-red-500/10 border border-red-500/20">
-            <AlertCircle size={10} className="text-red-400" />
-            <span className="text-[9px] font-bold text-red-400 uppercase">Urgent</span>
-          </div>
-        )}
+const EventItem = ({ event, index }) => {
+  if (!event) return null;
+  
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -20 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: index * 0.05 }}
+      whileHover={{ scale: 1.02, x: 4 }}
+      className="flex items-center gap-3 p-4 rounded-xl bg-gradient-to-r from-white/5 to-transparent hover:from-white/10 hover:to-white/5 transition-all border border-white/5 hover:border-white/10 group cursor-pointer"
+    >
+      <div className={`w-1.5 h-14 rounded-full ${
+        event.priority === 'high' ? 'bg-gradient-to-b from-red-500 to-red-600' : 
+        event.priority === 'medium' ? 'bg-gradient-to-b from-amber-500 to-orange-600' : 
+        'bg-gradient-to-b from-blue-500 to-purple-600'
+      } shadow-lg`}></div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className="text-sm font-bold text-white truncate group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-gray-400 transition-all">
+            {event.title || 'Untitled Event'}
+          </span>
+          {event.priority === 'high' && (
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-red-500/10 border border-red-500/20">
+              <AlertCircle size={10} className="text-red-400" />
+              <span className="text-[9px] font-bold text-red-400 uppercase">Urgent</span>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          {event.time && (
+            <>
+              <Clock size={10} />
+              <span className="font-mono font-bold">{event.time}</span>
+              <span className="text-gray-700">•</span>
+            </>
+          )}
+          <span className="px-2 py-0.5 rounded-lg bg-black/40 border border-white/5 uppercase tracking-wider font-bold text-[9px]">
+            {event.type || 'event'}
+          </span>
+        </div>
       </div>
-      <div className="flex items-center gap-2 text-xs text-gray-500">
-        {event.time && (
-          <>
-            <Clock size={10} />
-            <span className="font-mono font-bold">{event.time}</span>
-            <span className="text-gray-700">•</span>
-          </>
-        )}
-        <span className="px-2 py-0.5 rounded-lg bg-black/40 border border-white/5 uppercase tracking-wider font-bold text-[9px]">
-          {event.type}
-        </span>
-      </div>
-    </div>
-    <ChevronRight size={14} className="text-gray-700 group-hover:text-gray-400 transition-colors" />
-  </motion.div>
-);
+      <ChevronRight size={14} className="text-gray-700 group-hover:text-gray-400 transition-colors" />
+    </motion.div>
+  );
+};
 
 // --- ACTIVITY ITEM (Enhanced) ---
 const ActivityItem = ({ activity, index }) => {
-  const Icon = activity.icon;
+  if (!activity) return null;
+  
+  const Icon = activity.icon || Activity;
   const timeAgo = getTimeAgo(activity.time);
   
   return (
@@ -115,11 +132,11 @@ const ActivityItem = ({ activity, index }) => {
       className="flex items-center gap-3 p-3 rounded-lg hover:bg-white/5 transition-all cursor-pointer group"
     >
       <div className={`p-2 rounded-lg bg-gradient-to-br from-white/10 to-white/5 border border-white/10 group-hover:scale-110 transition-transform`}>
-        <Icon size={14} className={activity.color} />
+        <Icon size={14} className={activity.color || 'text-gray-400'} />
       </div>
       <div className="flex-1 min-w-0">
         <div className="text-sm text-white truncate font-medium group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-gray-400 transition-all">
-          {activity.title}
+          {activity.title || 'Untitled Activity'}
         </div>
         <div className="text-xs text-gray-600 font-mono font-bold">{timeAgo}</div>
       </div>
@@ -182,56 +199,210 @@ export const DailyDashboard = () => {
 
   // --- COMPUTE TODAY'S EVENTS ---
   const todaysEvents = useMemo(() => {
-    const today = new Date();
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    return calendarEvents
-      .filter(e => e.date === todayStr)
-      .sort((a, b) => (a.time || '23:59').localeCompare(b.time || '23:59'));
+    if (!Array.isArray(calendarEvents)) return [];
+    
+    try {
+      const today = new Date();
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      
+      return calendarEvents
+        .filter(e => e && e.date === todayStr)
+        .sort((a, b) => {
+          const timeA = a.time || '23:59';
+          const timeB = b.time || '23:59';
+          return timeA.localeCompare(timeB);
+        });
+    } catch (error) {
+      console.error('Error computing today\'s events:', error);
+      return [];
+    }
   }, [calendarEvents]);
 
   // --- COMPUTE STATS ---
   const stats = useMemo(() => {
-    const now = new Date();
-    const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+    try {
+      const now = new Date();
+      const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
 
-    return {
-      todayEvents: todaysEvents.length,
-      activeProjects: projects.filter(p => p.files?.length > 0).length,
-      totalProjects: projects.length,
-      recentChats: sessions.filter(s => new Date(s.date) >= weekAgo).length,
-      canvasNodes: canvasNodes.length,
-      upcomingDeadlines: calendarEvents.filter(e => 
-        e.type === 'deadline' && new Date(e.date) >= now
-      ).length
-    };
+      const activeProjects = Array.isArray(projects) 
+        ? projects.filter(p => p && Array.isArray(p.files) && p.files.length > 0).length 
+        : 0;
+
+      const recentChats = Array.isArray(sessions)
+        ? sessions.filter(s => {
+            if (!s || !s.date) return false;
+            try {
+              const sessionDate = new Date(s.date);
+              return !isNaN(sessionDate.getTime()) && sessionDate >= weekAgo;
+            } catch {
+              return false;
+            }
+          }).length
+        : 0;
+
+      const upcomingDeadlines = Array.isArray(calendarEvents)
+        ? calendarEvents.filter(e => {
+            if (!e || !e.date) return false;
+            try {
+              return e.type === 'deadline' && new Date(e.date) >= now;
+            } catch {
+              return false;
+            }
+          }).length
+        : 0;
+
+      return {
+        todayEvents: todaysEvents.length,
+        activeProjects,
+        totalProjects: Array.isArray(projects) ? projects.length : 0,
+        recentChats,
+        canvasNodes: Array.isArray(canvasNodes) ? canvasNodes.length : 0,
+        upcomingDeadlines
+      };
+    } catch (error) {
+      console.error('Error computing stats:', error);
+      return {
+        todayEvents: 0,
+        activeProjects: 0,
+        totalProjects: 0,
+        recentChats: 0,
+        canvasNodes: 0,
+        upcomingDeadlines: 0
+      };
+    }
   }, [todaysEvents, projects, sessions, canvasNodes, calendarEvents]);
 
-  // --- RECENT ACTIVITY ---
+  // --- RECENT ACTIVITY (FIXED) ---
   const activities = useMemo(() => {
-    const items = [];
-    
-    sessions.slice(0, 3).forEach(session => {
-      items.push({
-        type: 'chat',
-        icon: MessageSquare,
-        title: session.title,
-        time: new Date(session.date),
-        color: 'text-blue-400'
-      });
-    });
+    try {
+      const items = [];
+      const now = new Date();
 
-    projects.slice(0, 2).forEach(project => {
-      items.push({
-        type: 'project',
-        icon: Folder,
-        title: project.name,
-        time: new Date(project.createdAt || Date.now()),
-        color: 'text-purple-400'
-      });
-    });
+      // Add sessions with proper date handling
+      if (Array.isArray(sessions)) {
+        sessions.slice(0, 5).forEach(session => {
+          if (!session) return;
+          
+          let sessionTime = now;
+          if (session.date) {
+            try {
+              const parsedDate = new Date(session.date);
+              if (!isNaN(parsedDate.getTime())) {
+                sessionTime = parsedDate;
+              }
+            } catch (e) {
+              console.warn('Invalid session date:', session.date);
+            }
+          } else if (session.timestamp) {
+            try {
+              const parsedDate = new Date(session.timestamp);
+              if (!isNaN(parsedDate.getTime())) {
+                sessionTime = parsedDate;
+              }
+            } catch (e) {
+              console.warn('Invalid session timestamp:', session.timestamp);
+            }
+          }
 
-    return items.sort((a, b) => b.time - a.time).slice(0, 6);
-  }, [sessions, projects]);
+          items.push({
+            type: 'chat',
+            icon: MessageSquare,
+            title: session.title || 'Untitled Chat',
+            time: sessionTime,
+            color: 'text-blue-400',
+            id: session.id || `session-${Math.random()}`
+          });
+        });
+      }
+
+      // Add projects with proper date handling
+      if (Array.isArray(projects)) {
+        projects.slice(0, 3).forEach(project => {
+          if (!project) return;
+          
+          let projectTime = now;
+          if (project.createdAt) {
+            try {
+              const parsedDate = new Date(project.createdAt);
+              if (!isNaN(parsedDate.getTime())) {
+                projectTime = parsedDate;
+              }
+            } catch (e) {
+              console.warn('Invalid project createdAt:', project.createdAt);
+            }
+          } else if (project.updatedAt) {
+            try {
+              const parsedDate = new Date(project.updatedAt);
+              if (!isNaN(parsedDate.getTime())) {
+                projectTime = parsedDate;
+              }
+            } catch (e) {
+              console.warn('Invalid project updatedAt:', project.updatedAt);
+            }
+          }
+
+          items.push({
+            type: 'project',
+            icon: Folder,
+            title: project.name || 'Untitled Project',
+            time: projectTime,
+            color: 'text-purple-400',
+            id: project.id || `project-${Math.random()}`
+          });
+        });
+      }
+
+      // Add recent calendar events
+      if (Array.isArray(calendarEvents)) {
+        const recentEvents = calendarEvents
+          .filter(e => {
+            if (!e || !e.date) return false;
+            try {
+              const eventDate = new Date(e.date);
+              if (isNaN(eventDate.getTime())) return false;
+              const daysDiff = (now - eventDate) / (1000 * 60 * 60 * 24);
+              return daysDiff >= 0 && daysDiff <= 7;
+            } catch {
+              return false;
+            }
+          })
+          .slice(0, 2);
+
+        recentEvents.forEach(event => {
+          let eventTime = now;
+          try {
+            const parsedDate = new Date(event.date);
+            if (!isNaN(parsedDate.getTime())) {
+              eventTime = parsedDate;
+            }
+          } catch (e) {
+            console.warn('Invalid event date:', event.date);
+          }
+
+          items.push({
+            type: 'event',
+            icon: Calendar,
+            title: event.title || 'Untitled Event',
+            time: eventTime,
+            color: 'text-green-400',
+            id: event.id || `event-${Math.random()}`
+          });
+        });
+      }
+
+      // Sort by time (most recent first) and take top 8
+      return items
+        .sort((a, b) => {
+          const timeA = a.time instanceof Date ? a.time.getTime() : 0;
+          const timeB = b.time instanceof Date ? b.time.getTime() : 0;
+          return timeB - timeA;
+        })
+        .slice(0, 8);
+    } catch (error) {
+      console.error('Error computing recent activities:', error);
+      return [];
+    }
+  }, [sessions, projects, calendarEvents]);
 
   const currentHour = new Date().getHours();
   const greeting = currentHour < 12 ? 'Good Morning' : currentHour < 18 ? 'Good Afternoon' : 'Good Evening';
@@ -259,7 +430,7 @@ export const DailyDashboard = () => {
                 <span>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</span>
               </div>
               <div className="flex items-center gap-4">
-                <div className={`h-12 w-12 bg-gradient-to-br ${theme.gradient} rounded-2xl flex items-center justify-center shadow-2xl ${theme.glow}`}>
+                <div className={`h-12 w-12 bg-gradient-to-br ${theme?.gradient || 'from-blue-500 to-purple-600'} rounded-2xl flex items-center justify-center shadow-2xl ${theme?.glow || ''}`}>
                   <Brain size={24} className="text-white" />
                 </div>
                 <div>
@@ -293,8 +464,8 @@ export const DailyDashboard = () => {
             label="Today's Events"
             value={stats.todayEvents}
             trendUp={false}
-            onClick={() => setCurrentView('chronos')}
-            theme={theme}
+            onClick={() => setCurrentView && setCurrentView('chronos')}
+            theme={theme || {}}
             gradient="from-purple-500/20 to-pink-500/20"
           />
           <StatCard
@@ -302,8 +473,8 @@ export const DailyDashboard = () => {
             label="Active Projects"
             value={stats.activeProjects}
             trendUp={true}
-            onClick={() => setCurrentView('dashboard')}
-            theme={theme}
+            onClick={() => setCurrentView && setCurrentView('dashboard')}
+            theme={theme || {}}
             gradient="from-blue-500/20 to-cyan-500/20"
           />
           <StatCard
@@ -311,8 +482,8 @@ export const DailyDashboard = () => {
             label="Recent Chats"
             value={stats.recentChats}
             trendUp={true}
-            onClick={() => setCurrentView('chat')}
-            theme={theme}
+            onClick={() => setCurrentView && setCurrentView('chat')}
+            theme={theme || {}}
             gradient="from-green-500/20 to-emerald-500/20"
           />
           <StatCard
@@ -320,8 +491,8 @@ export const DailyDashboard = () => {
             label="Canvas Nodes"
             value={stats.canvasNodes}
             trendUp={false}
-            onClick={() => setCurrentView('canvas')}
-            theme={theme}
+            onClick={() => setCurrentView && setCurrentView('canvas')}
+            theme={theme || {}}
             gradient="from-amber-500/20 to-orange-500/20"
           />
         </div>
@@ -348,7 +519,7 @@ export const DailyDashboard = () => {
                 </div>
               </div>
               <button
-                onClick={() => setCurrentView('chronos')}
+                onClick={() => setCurrentView && setCurrentView('chronos')}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 transition-all border border-white/10"
               >
                 VIEW ALL <ArrowRight size={12} />
@@ -370,7 +541,7 @@ export const DailyDashboard = () => {
                     <p className="text-sm font-bold text-white mb-1">No events today</p>
                     <p className="text-xs text-gray-600">Your schedule is clear</p>
                     <button
-                      onClick={() => setCurrentView('chronos')}
+                      onClick={() => setCurrentView && setCurrentView('chronos')}
                       className="mt-4 px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-gray-400 hover:text-white transition-all flex items-center gap-2"
                     >
                       <Plus size={12} /> Add Event
@@ -378,7 +549,7 @@ export const DailyDashboard = () => {
                   </motion.div>
                 ) : (
                   todaysEvents.map((event, i) => (
-                    <EventItem key={event.id} event={event} index={i} />
+                    <EventItem key={event.id || i} event={event} index={i} />
                   ))
                 )}
               </AnimatePresence>
@@ -413,11 +584,12 @@ export const DailyDashboard = () => {
                     <div className="p-4 rounded-2xl bg-white/5 border border-white/10 mb-4">
                       <Activity size={48} className="opacity-30" />
                     </div>
-                    <p className="text-sm font-bold text-white">No recent activity</p>
+                    <p className="text-sm font-bold text-white mb-1">No recent activity</p>
+                    <p className="text-xs text-gray-600">Start creating to see updates</p>
                   </motion.div>
                 ) : (
                   activities.map((activity, i) => (
-                    <ActivityItem key={i} activity={activity} index={i} />
+                    <ActivityItem key={activity.id || i} activity={activity} index={i} />
                   ))
                 )}
               </AnimatePresence>
@@ -446,7 +618,7 @@ export const DailyDashboard = () => {
               icon={Layout}
               stats={`${stats.canvasNodes} nodes`}
               gradient="from-blue-600 via-blue-500 to-purple-600"
-              onClick={() => setCurrentView('canvas')}
+              onClick={() => setCurrentView && setCurrentView('canvas')}
             />
             
             <QuickActionCard
@@ -455,7 +627,7 @@ export const DailyDashboard = () => {
               icon={PenTool}
               stats="Ready to write"
               gradient="from-amber-600 via-orange-500 to-red-600"
-              onClick={() => setCurrentView('zenith')}
+              onClick={() => setCurrentView && setCurrentView('zenith')}
             />
             
             <QuickActionCard
@@ -464,7 +636,7 @@ export const DailyDashboard = () => {
               icon={Calendar}
               stats={`${stats.todayEvents} today`}
               gradient="from-purple-600 via-pink-500 to-rose-600"
-              onClick={() => setCurrentView('chronos')}
+              onClick={() => setCurrentView && setCurrentView('chronos')}
             />
             
             <QuickActionCard
@@ -473,7 +645,7 @@ export const DailyDashboard = () => {
               icon={MessageSquare}
               stats={`${stats.recentChats} this week`}
               gradient="from-green-600 via-emerald-500 to-teal-600"
-              onClick={() => setCurrentView('chat')}
+              onClick={() => setCurrentView && setCurrentView('chat')}
             />
           </div>
         </motion.div>

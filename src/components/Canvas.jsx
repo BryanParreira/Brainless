@@ -106,67 +106,6 @@ const ContextMenu = ({ x, y, onClose, items }) => {
   );
 };
 
-// --- COMMAND PALETTE ---
-const CommandPalette = ({ isOpen, onClose, commands }) => {
-  const [query, setQuery] = useState('');
-  
-  const filteredCommands = useMemo(() => {
-    if (!query) return commands;
-    return commands.filter(cmd => 
-      cmd.label.toLowerCase().includes(query.toLowerCase()) ||
-      cmd.description?.toLowerCase().includes(query.toLowerCase())
-    );
-  }, [query, commands]);
-
-  if (!isOpen) return null;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-start justify-center pt-32"
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ scale: 0.95, y: -20 }}
-        animate={{ scale: 1, y: 0 }}
-        className="w-full max-w-2xl bg-[#0a0a0a] border border-white/20 rounded-2xl shadow-2xl overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="p-4 border-b border-white/10">
-          <div className="flex items-center gap-3">
-            <Command size={20} className="text-blue-400" />
-            <input
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Type a command or search..."
-              className="flex-1 bg-transparent text-white text-lg outline-none"
-            />
-          </div>
-        </div>
-        <div className="max-h-96 overflow-y-auto custom-scrollbar">
-          {filteredCommands.map((cmd, i) => (
-            <button
-              key={i}
-              onClick={() => { cmd.onClick(); onClose(); }}
-              className="w-full px-4 py-3 text-left hover:bg-white/5 flex items-center gap-3 transition-colors"
-            >
-              {cmd.icon && <span className="text-blue-400">{cmd.icon}</span>}
-              <div className="flex-1">
-                <div className="text-white font-medium">{cmd.label}</div>
-                {cmd.description && <div className="text-xs text-gray-500">{cmd.description}</div>}
-              </div>
-              {cmd.shortcut && <kbd className="text-xs px-2 py-1 rounded bg-white/10 text-gray-500">{cmd.shortcut}</kbd>}
-            </button>
-          ))}
-        </div>
-      </motion.div>
-    </motion.div>
-  );
-};
-
 // --- MINI MAP COMPONENT ---
 const MiniMap = ({ nodes, pan, zoom, containerSize, onNavigate }) => {
   const mapSize = 200;
@@ -739,7 +678,6 @@ export const Canvas = () => {
   const [alignmentGuides, setAlignmentGuides] = useState([]);
   const [frames, setFrames] = useState([]);
   const [selectedFrame, setSelectedFrame] = useState(null);
-  const [commandPalette, setCommandPalette] = useState(false);
   const [history, setHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
 
@@ -789,14 +727,9 @@ export const Canvas = () => {
     }
   }, [historyIndex, history]);
 
-  // Keyboard Shortcuts
+  // Keyboard Shortcuts (removed command palette shortcuts)
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setCommandPalette(true);
-      }
-      
       if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
         e.preventDefault();
         if (e.shiftKey) redo();
@@ -828,7 +761,6 @@ export const Canvas = () => {
       if (e.key === 'Escape') {
         setSelectedNodes(new Set());
         setShowTemplates(false);
-        setCommandPalette(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -860,7 +792,7 @@ export const Canvas = () => {
     setAlignmentGuides(guides);
   }, [canvasNodes]);
 
-  // Global Events
+  // Global Events - OPTIMIZED FOR FASTER NODE MOVEMENT
   useEffect(() => {
     const handleGlobalMove = (e) => {
       if (connectingSource && containerRef.current) {
@@ -890,6 +822,8 @@ export const Canvas = () => {
       else if (type === 'node') {
         const dx = (e.clientX - startX) / currentZoom;
         const dy = (e.clientY - startY) / currentZoom;
+        
+        // OPTIMIZED: Update nodes directly without delay
         initialNodes.forEach(n => {
             const newX = snapToGrid(n.x + dx);
             const newY = snapToGrid(n.y + dy);
@@ -1163,22 +1097,6 @@ export const Canvas = () => {
     saveToHistory();
   };
 
-  // Command palette commands
-  const commands = [
-    { icon: <FileCode size={16}/>, label: 'Add File Node', description: 'Create a new code file node', onClick: () => addNodeFromTemplate(NODE_TEMPLATES['Component']), shortcut: 'F' },
-    { icon: <StickyNote size={16}/>, label: 'Add Note', description: 'Create a new note node', onClick: () => addNodeFromTemplate(NODE_TEMPLATES['Quick Note']), shortcut: 'N' },
-    { icon: <Database size={16}/>, label: 'Add Database', description: 'Create a new database schema', onClick: () => addNodeFromTemplate(NODE_TEMPLATES['Database Schema']), shortcut: 'D' },
-    { icon: <ImageIcon size={16}/>, label: 'Add Image', description: 'Add an image node', onClick: () => addNodeFromTemplate(NODE_TEMPLATES['Image']) },
-    { icon: <ExternalLink size={16}/>, label: 'Add Link', description: 'Add a link/bookmark node', onClick: () => addNodeFromTemplate(NODE_TEMPLATES['Link']) },
-    { icon: <CheckCircle size={16}/>, label: 'Add Checklist', description: 'Add a task checklist', onClick: () => addNodeFromTemplate(NODE_TEMPLATES['Task']) },
-    { icon: <Square size={16}/>, label: 'Create Frame', description: 'Group nodes in a frame', onClick: createFrame },
-    { icon: <Grid size={16}/>, label: 'Auto Layout', description: 'Organize nodes automatically', onClick: autoLayout },
-    { icon: <Target size={16}/>, label: 'Center View', description: 'Center on all nodes', onClick: centerView },
-    { icon: <Download size={16}/>, label: 'Export JSON', description: 'Export canvas as JSON', onClick: exportAsJSON },
-    { icon: <RotateCcw size={16}/>, label: 'Undo', description: 'Undo last action', onClick: undo, shortcut: '⌘Z' },
-    { icon: <RotateCw size={16}/>, label: 'Redo', description: 'Redo last action', onClick: redo, shortcut: '⌘⇧Z' },
-  ];
-
   // Virtual rendering for performance
   const visibleNodes = useMemo(() => {
     const viewportBounds = {
@@ -1228,7 +1146,7 @@ export const Canvas = () => {
               className={`p-2.5 rounded-xl transition-all flex items-center gap-2 ${
                 showTemplates ? 'bg-blue-500/20 text-blue-400' : 'text-gray-400 hover:text-white hover:bg-white/5'
               }`}
-              title="Node Templates (⌘T)"
+              title="Node Templates"
             >
               <Plus size={18}/>
               <span className="text-[10px] font-bold uppercase tracking-wider">Add</span>
@@ -1367,7 +1285,7 @@ export const Canvas = () => {
         onWheel={handleWheel}
       >
         <div 
-          className="absolute origin-top-left transition-transform duration-75 ease-out will-change-transform"
+          className="absolute origin-top-left will-change-transform"
           style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
         >
             {/* FRAMES LAYER */}
@@ -1650,17 +1568,6 @@ export const Canvas = () => {
 
       {/* VIGNETTE OVERLAY */}
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,transparent_20%,#000000_100%)] opacity-50 z-30"></div>
-
-      {/* COMMAND PALETTE */}
-      <AnimatePresence>
-        {commandPalette && (
-          <CommandPalette
-            isOpen={commandPalette}
-            onClose={() => setCommandPalette(false)}
-            commands={commands}
-          />
-        )}
-      </AnimatePresence>
 
       {/* CONTEXT MENU */}
       <AnimatePresence>
