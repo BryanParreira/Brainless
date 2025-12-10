@@ -19,7 +19,7 @@ const COMMAND_REGISTRY = {
   '/refactor': "Refactor this code to be cleaner."
 };
 
-// --- NEW COMPONENT: Thinking Indicator ---
+// --- COMPONENT: Thinking Indicator ---
 const ThinkingIndicator = ({ theme }) => (
   <div className="flex items-center gap-3 py-1 pl-1 animate-in fade-in duration-300">
     <div className={`p-1.5 rounded-lg ${theme.softBg} border ${theme.primaryBorder} flex items-center justify-center`}>
@@ -38,7 +38,7 @@ const ThinkingIndicator = ({ theme }) => (
   </div>
 );
 
-// --- NEW: Attachment Preview Component ---
+// --- COMPONENT: Attachment Preview ---
 const AttachmentPreview = ({ file, onRemove }) => {
   const isImage = file.type.startsWith('image/');
   const [preview, setPreview] = useState(null);
@@ -130,7 +130,7 @@ const Callout = ({ children, theme }) => (
 );
 
 const MessageBubble = React.memo(({ msg, theme, fontSize, isStreaming }) => {
-  // Remove <thinking> tags from content
+  // Remove <thinking> tags from content for display
   const mainContent = useMemo(() => {
     let content = msg.content.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim();
     content = content.replace(/<thinking>[\s\S]*$/gi, '');
@@ -163,7 +163,7 @@ const MessageBubble = React.memo(({ msg, theme, fontSize, isStreaming }) => {
           {!isUser && <span className={`text-[9px] ${theme.softBg} ${theme.accentText} px-1.5 py-0.5 rounded border border-white/10 uppercase tracking-wider font-bold`}>AI</span>}
         </div>
         
-        {/* CRITICAL FIX: Only show attachments in the message history, NOT sent to AI again */}
+        {/* Only show attachments in the message history, NOT sent to AI again in UI */}
         {isUser && msg.attachments && msg.attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2 justify-end">
             {msg.attachments.map((att, idx) => (
@@ -211,7 +211,7 @@ const MessageBubble = React.memo(({ msg, theme, fontSize, isStreaming }) => {
   );
 });
 
-// ENHANCED QuickActions with better handler system
+// --- COMPONENT: QuickActions ---
 const QuickActions = ({ onAction, settings, theme, runFlashpoint, runBlueprint, messages, input }) => {
   const hasContext = messages.length > 0;
   const hasInput = input && input.trim().length > 0;
@@ -335,6 +335,7 @@ const QuickActions = ({ onAction, settings, theme, runFlashpoint, runBlueprint, 
   );
 };
 
+// --- MAIN COMPONENT: Workspace ---
 export const Workspace = () => {
   const { messages, sendMessage, isLoading, isOllamaRunning, settings, theme, activeArtifact, closeLabBench, runFlashpoint, runBlueprint } = useLumina();
   const [input, setInput] = useState("");
@@ -397,7 +398,7 @@ export const Workspace = () => {
     setAttachments(prev => prev.filter((_, i) => i !== index));
   }, []);
 
-  // CRITICAL FIX: Process attachments properly and clear them after sending
+  // Send handling with attachment processing
   const handleSend = useCallback(async () => { 
     if (!input.trim() && attachments.length === 0) {
       console.log('⚠️ Empty message, not sending');
@@ -429,8 +430,8 @@ export const Workspace = () => {
               reader.readAsDataURL(att.file);
             });
           } else {
-            // For non-image files, could extract text here
-            console.log('📄 File attached:', att.name);
+            // For non-image files, pass as file object for now (or extract text if backend supports)
+            console.log('File attached:', att.name);
             return {
               type: 'file',
               name: att.name,
@@ -444,8 +445,7 @@ export const Workspace = () => {
     }
     
     // CRITICAL: Send message with attachments ONLY for this turn
-    // The context should NOT include images from previous messages
-    console.log('📤 Calling sendMessage with:', { 
+    console.log('Calling sendMessage with:', { 
       promptLength: finalPrompt.length, 
       attachments: processedAttachments.length 
     });

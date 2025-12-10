@@ -71,15 +71,21 @@ export const LuminaProvider = ({ children }) => {
   const [sessionId, setSessionId] = useState(null);
   const [projects, setProjects] = useState([]);
   const [activeProject, setActiveProject] = useState(null);
-  const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [currentView, setCurrentView] = useState('home');
   const [gitStatus, setGitStatus] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [calendarEvents, setCalendarEvents] = useState([]);
   const [isInitialized, setIsInitialized] = useState(false);
-  const [initError, setInitError] = useState(null);
-  const [activeArtifact, setActiveArtifact] = useState(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
+
+  // --- ARTIFACTS / LAB BENCH STATE (UPDATED FOR TABS) ---
+  const [artifacts, setArtifacts] = useState([]); // Array of open tabs
+  const [activeArtifactId, setActiveArtifactId] = useState(null); // ID of currently visible tab
+
+  // Computed property for the currently active object
+  const activeArtifact = useMemo(() => 
+    artifacts.find(a => a.id === activeArtifactId) || null
+  , [artifacts, activeArtifactId]);
 
   // --- PHASE 1: NEW STATE ---
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -342,7 +348,6 @@ export const LuminaProvider = ({ children }) => {
     // STEP 2: Build conversation context (TEXT ONLY, NO IMAGES)
     // ========================================
     // Only include recent conversation for context (last 10 messages)
-    // This gives the AI conversation history WITHOUT re-sending old images
     const conversationHistory = messages.slice(-10).map(msg => {
       // Strip out any image references, just keep the text
       const role = msg.role === 'user' ? 'USER' : 'ASSISTANT';
@@ -393,7 +398,6 @@ export const LuminaProvider = ({ children }) => {
     // Add conversation history for context continuity
     if (conversationHistory && messages.length > 0) {
       enrichedPrompt = `[CONVERSATION HISTORY]\n${conversationHistory}\n\n[CURRENT MESSAGE]\n${enrichedPrompt}`;
-      console.log('💬 Added conversation history for context');
     }
     
     // Add document context if present
@@ -413,7 +417,6 @@ export const LuminaProvider = ({ children }) => {
       // Even without images, remind AI not to hallucinate about past images
       if (messages.some(m => m.attachments && m.attachments.length > 0)) {
         enrichedPrompt = `[NOTE: No images are attached to this message. If the user references "the image" or visual content, they are referring to context from our previous conversation. Do not request file contents or assume there are new images.]\n\n${enrichedPrompt}`;
-        console.log('📝 Added clarification about no new images');
       }
     }
 
@@ -421,11 +424,6 @@ export const LuminaProvider = ({ children }) => {
     // STEP 7: Send to Ollama with ONLY current message's images
     // ========================================
     try {
-      console.log('🚀 Calling window.lumina.sendPrompt...');
-      console.log('   - Images:', images.length);
-      console.log('   - Model:', currentModel);
-      console.log('   - Context files:', contextFiles.length);
-      
       window.lumina.sendPrompt(
         enrichedPrompt,
         currentModel,
@@ -459,18 +457,13 @@ export const LuminaProvider = ({ children }) => {
     setSessionId(uuidv4());
     setIsLoading(false);
     setCurrentView('chat');
-    
-    console.log('🔄 Started new chat - context cleared');
   }, [messages, sessionId]);
 
   const loadSession = useCallback(async (id) => {
     const data = await window.lumina.loadSession(id);
-    // CRITICAL: When loading old sessions, mark attachments as processed
     messagesDispatch({ type: 'SET_MESSAGES', payload: data.messages || [] });
     setSessionId(data.id);
     setCurrentView('chat');
-    
-    console.log('📂 Loaded session:', id);
   }, []);
 
   const deleteSession = useCallback(async (e, id) => {
@@ -734,7 +727,19 @@ export const LuminaProvider = ({ children }) => {
       if (Array.isArray(response)) deck = response;
       else if (response && Array.isArray(response.cards)) deck = response.cards;
       if (deck.length > 0) {
-        setActiveArtifact({ type: 'flashcards', language: 'json', content: deck });
+        const deckId = uuidv4();
+        const newDeck = { 
+            id: deckId, 
+            type: 'flashcards', 
+            language: 'json', 
+            content: deck, 
+            title: 'Flashcards',
+            timestamp: Date.now()
+        };
+        // Use updated state setter for array
+        setArtifacts(prev => [...prev, newDeck]);
+        setActiveArtifactId(deckId);
+        
         messagesDispatch({ type: 'ADD_ASSISTANT_MESSAGE' });
         messagesDispatch({ type: 'APPEND_TO_LAST', payload: 'Flashcards generated successfully.' });
       } else throw new Error('Invalid JSON');
@@ -851,17 +856,55 @@ export const LuminaProvider = ({ children }) => {
     }
   }, [activeProject, currentModel, settings]);
 
+  // --- ARTIFACTS / LAB BENCH ACTIONS (UPDATED FOR TABS) ---
   const openLabBench = useCallback((content, language) => {
-  console.log('🔬 openLabBench called with:', { language, contentLength: content?.length });
-  setActiveArtifact({ 
-    content, 
-    language,
-    type: 'code' // Add type property
-  });
-  }, []);
+    console.log('🔬 openLabBench called with:', { language, contentLength: content?.length });
+    
+    // Check if this content is already open in a tab to prevent duplicates
+    // We check against content equality for simplicity, though IDs are preferred if available
+    const existing = artifacts.find(a => a.content === content && a.language === language);
+    
+    if (existing) {
+        // If it exists, just switch to that tab
+        setActiveArtifactId(existing.id);
+        return;
+    }
+
+    // Create new artifact tab
+    const newId = uuidv4();
+    const newArtifact = { 
+        id: newId, 
+        content, 
+        language,
+        type: 'code',
+        title: `${language || 'text'} snippet`, // Basic title, can be improved
+        timestamp: Date.now()
+    };
+
+    setArtifacts(prev => [...prev, newArtifact]);
+    setActiveArtifactId(newId);
+  }, [artifacts]);
+
+  const closeArtifact = useCallback((id) => {
+    setArtifacts(prev => {
+        const newArr = prev.filter(a => a.id !== id);
+        
+        // If we closed the active tab, switch to the last available one
+        if (id === activeArtifactId) {
+             if (newArr.length > 0) {
+                 setActiveArtifactId(newArr[newArr.length - 1].id);
+             } else {
+                 setActiveArtifactId(null);
+             }
+        }
+        return newArr;
+    });
+  }, [activeArtifactId]);
 
   const closeLabBench = useCallback(() => {
-    setActiveArtifact(null);
+    // Clear all
+    setArtifacts([]);
+    setActiveArtifactId(null);
   }, []);
 
   // --- CONTEXT VALUE ---
@@ -926,11 +969,14 @@ export const LuminaProvider = ({ children }) => {
     // Git
     gitStatus,
 
-    // Artifacts
-    activeArtifact,
-    setActiveArtifact,
+    // Artifacts / Lab Bench
+    activeArtifact, // The computed current object
+    activeArtifactId,
+    setActiveArtifactId, // To switch tabs
+    artifacts, // The array of all open tabs
     openLabBench,
     closeLabBench,
+    closeArtifact, // New function to close specific tab
 
     // AI Agents
     runFlashpoint,
@@ -1007,9 +1053,15 @@ export const LuminaProvider = ({ children }) => {
     generateSchedule,
     currentView,
     gitStatus,
+    
+    // Updated Artifact dependencies
     activeArtifact,
+    activeArtifactId,
+    artifacts,
     openLabBench,
     closeLabBench,
+    closeArtifact,
+    
     runFlashpoint,
     runBlueprint,
     runDiffDoctor,

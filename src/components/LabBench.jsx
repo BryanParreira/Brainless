@@ -1,15 +1,12 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   X, Maximize2, Minimize2, Download, Code, Eye, RefreshCw, FlaskConical, 
   ChevronLeft, ChevronRight, BrainCircuit, Check, Copy, Activity, 
-  Clock, ThumbsUp, RotateCcw, Repeat, Plus, History, GitBranch, Search,
-  Sparkles, FileText, Image, Settings, Trash2, Edit3, Play, Pause,
-  BarChart3, TrendingUp, Target, Zap, BookOpen, MessageSquare, Share2,
-  Save, ExternalLink, Grid, List, Filter, SortAsc, Star, Volume2, VolumeX,
-  ArrowLeft, ArrowRight, MoreVertical, ChevronDown, AlertCircle, CheckCircle2
+  RotateCcw, Repeat, Plus, History, GitBranch, Search,
+  Sparkles, BookOpen, Edit3, BarChart3, Target, Zap, 
+  Share2, Grid, List, Volume2, VolumeX,
+  ArrowLeft, ArrowRight, AlertCircle, CheckCircle2, ThumbsUp
 } from 'lucide-react';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { motion, AnimatePresence } from 'framer-motion';
 import Editor from '@monaco-editor/react';
 
@@ -20,8 +17,7 @@ const KeyboardShortcuts = ({ isOpen, onClose, theme }) => {
   const shortcuts = [
     { key: 'Space / Enter', action: 'Flip card (Flashcards)' },
     { key: '1-4', action: 'Grade card difficulty' },
-    { key: '⌘ + K', action: 'Command palette' },
-    { key: '⌘ + S', action: 'Save/Export' },
+    { key: '⌘ + S', action: 'Save/Download' },
     { key: '⌘ + F', action: 'Search in code' },
     { key: '⌘ + /', action: 'Toggle shortcuts' },
     { key: 'Esc', action: 'Close panels' },
@@ -81,29 +77,33 @@ const VersionHistory = ({ versions, currentVersion, onRestore, onClose, theme })
       </div>
       
       <div className="overflow-y-auto custom-scrollbar h-[calc(100%-56px)] p-4 space-y-2">
-        {versions.map((version, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: i * 0.05 }}
-            className={`p-3 rounded-lg border transition-all cursor-pointer ${
-              i === currentVersion
-                ? `${theme.softBg} ${theme.softBorder} border-2`
-                : 'bg-black/30 border-white/5 hover:border-white/20'
-            }`}
-            onClick={() => onRestore(i)}
-          >
-            <div className="flex items-start justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <GitBranch size={12} className={i === currentVersion ? theme.accentText : 'text-gray-500'} />
-                <span className="text-xs font-bold text-white">Version {versions.length - i}</span>
+        {versions.length === 0 ? (
+          <div className="text-center text-gray-500 mt-10 text-sm">No history yet.</div>
+        ) : (
+          versions.map((version, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.05 }}
+              className={`p-3 rounded-lg border transition-all cursor-pointer ${
+                i === currentVersion
+                  ? `${theme.softBg} ${theme.softBorder} border-2`
+                  : 'bg-black/30 border-white/5 hover:border-white/20'
+              }`}
+              onClick={() => onRestore(i)}
+            >
+              <div className="flex items-start justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <GitBranch size={12} className={i === currentVersion ? theme.accentText : 'text-gray-500'} />
+                  <span className="text-xs font-bold text-white">Version {versions.length - i}</span>
+                </div>
+                <span className="text-[10px] text-gray-500 font-mono">{version.timestamp}</span>
               </div>
-              <span className="text-[10px] text-gray-500 font-mono">{version.timestamp}</span>
-            </div>
-            <p className="text-xs text-gray-400 line-clamp-2">{version.description}</p>
-          </motion.div>
-        ))}
+              <p className="text-xs text-gray-400 line-clamp-2">{version.description}</p>
+            </motion.div>
+          ))
+        )}
       </div>
     </motion.div>
   );
@@ -170,6 +170,7 @@ const FlashcardDeck = ({ data, theme, onUpdate }) => {
 
   const speakText = (text) => {
     if (!audioEnabled || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     window.speechSynthesis.speak(utterance);
   };
@@ -693,7 +694,8 @@ const SynthesisTable = ({ data, theme }) => {
 
 // --- MAIN LAB BENCH WITH TABS ---
 export const LabBench = ({ artifacts: initialArtifacts = [], onClose, theme }) => {
-  const [artifacts, setArtifacts] = useState(initialArtifacts.length > 0 ? initialArtifacts : [initialArtifacts[0]]);
+  // Use local state to manage tabs, but initialize from props
+  const [artifacts, setArtifacts] = useState(initialArtifacts.length > 0 ? initialArtifacts : []);
   const [activeTab, setActiveTab] = useState(0);
   const [view, setView] = useState('preview');
   const [isExpanded, setIsExpanded] = useState(false);
@@ -706,15 +708,47 @@ export const LabBench = ({ artifacts: initialArtifacts = [], onClose, theme }) =
   const [searchInCode, setSearchInCode] = useState('');
   const [showSearch, setShowSearch] = useState(false);
 
+  // CRITICAL: Sync with prop changes to APPEND new tabs
+  useEffect(() => {
+    if (initialArtifacts.length > 0) {
+      const incoming = initialArtifacts[0];
+      if (!incoming) return;
+
+      setArtifacts(prev => {
+        // 1. Is it already in our list?
+        const existingIndex = prev.findIndex(item => 
+          item.content === incoming.content && item.language === incoming.language
+        );
+
+        if (existingIndex !== -1) {
+          // If already exists, switch to that tab
+          setActiveTab(existingIndex);
+          return prev;
+        }
+
+        // 2. It's new, append it
+        const newList = [...prev, incoming];
+        setActiveTab(newList.length - 1); // Switch to the new end
+        return newList;
+      });
+    }
+  }, [initialArtifacts]);
+
   const artifact = artifacts[activeTab] || artifacts[0];
   
+  // Supported languages list for the selector
+  const SUPPORTED_LANGUAGES = [
+    'javascript', 'typescript', 'html', 'css', 'json', 'python', 'java', 
+    'c', 'cpp', 'csharp', 'go', 'rust', 'php', 'sql', 'markdown', 'xml', 'yaml', 'shell'
+  ];
+
   // Determine artifact type
   const isWeb = artifact?.language && ['html', 'svg'].includes(artifact.language);
   const isFlashcards = artifact?.type === 'flashcards';
   const isSynthesis = artifact?.type === 'synthesis';
-  const isCode = !isWeb && !isFlashcards && !isSynthesis;
+  const isCode = !isFlashcards && !isSynthesis;
 
-  // Save version on content change
+  // Save version on content change (initial load)
   useEffect(() => {
     if (artifact && versions.length === 0) {
       setVersions([{
@@ -770,11 +804,13 @@ export const LabBench = ({ artifacts: initialArtifacts = [], onClose, theme }) =
 
   const addNewTab = () => {
     setArtifacts([...artifacts, {
-      content: '// New artifact\n',
-      language: 'javascript',
-      type: 'code'
+      content: '// Select language above\n',
+      language: 'javascript', // Default to JS, but user can change
+      type: 'code',
+      title: 'New Tab'
     }]);
     setActiveTab(artifacts.length);
+    setView('code');
   };
 
   const closeTab = (index) => {
@@ -789,7 +825,48 @@ export const LabBench = ({ artifacts: initialArtifacts = [], onClose, theme }) =
     }
   };
 
-  // Keyboard shortcuts
+  const handleLanguageChange = (newLang) => {
+    const updatedArtifacts = [...artifacts];
+    updatedArtifacts[activeTab] = { ...artifact, language: newLang };
+    setArtifacts(updatedArtifacts);
+  };
+
+  // --- INTEGRATION LOGIC: Combine Tabs for Preview ---
+  const getCombinedPreview = () => {
+    if (artifact.language !== 'html') return artifact.content;
+
+    let htmlContent = artifact.content;
+
+    // 1. Inject CSS from other tabs
+    const cssTabs = artifacts.filter(a => a.language === 'css');
+    if (cssTabs.length > 0) {
+      const combinedCss = cssTabs.map(a => a.content).join('\n');
+      const styleTag = `<style>\n${combinedCss}\n</style>`;
+      
+      if (htmlContent.includes('</head>')) {
+        htmlContent = htmlContent.replace('</head>', `${styleTag}\n</head>`);
+      } else {
+        htmlContent = `${styleTag}\n${htmlContent}`;
+      }
+    }
+
+    // 2. Inject JS from other tabs
+    const jsTabs = artifacts.filter(a => a !== artifact && ['javascript', 'typescript'].includes(a.language));
+    if (jsTabs.length > 0) {
+      const combinedJs = jsTabs.map(a => a.content).join('\n');
+      const scriptTag = `<script>\n${combinedJs}\n</script>`;
+      
+      if (htmlContent.includes('</body>')) {
+        htmlContent = htmlContent.replace('</body>', `${scriptTag}\n</body>`);
+      } else {
+        htmlContent = `${htmlContent}\n${scriptTag}`;
+      }
+    }
+
+    return htmlContent;
+  };
+
+  // Keyboard shortcuts listener
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === '/') {
@@ -834,7 +911,7 @@ export const LabBench = ({ artifacts: initialArtifacts = [], onClose, theme }) =
               <div
                 key={i}
                 onClick={() => setActiveTab(i)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-t-lg cursor-pointer transition-all min-w-[120px] ${
+                className={`flex items-center gap-2 px-3 py-2 rounded-t-lg cursor-pointer transition-all min-w-[120px] max-w-[200px] ${
                   activeTab === i
                     ? `${theme.softBg} ${theme.accentText} border-t border-x ${theme.softBorder}`
                     : 'bg-black/20 text-gray-500 hover:text-gray-300'
@@ -867,9 +944,27 @@ export const LabBench = ({ artifacts: initialArtifacts = [], onClose, theme }) =
               <div className={`p-1.5 rounded-md ${theme.softBg} ${theme.accentText}`}>
                 <FlaskConical size={14} />
               </div>
-              <span className="text-xs font-bold text-gray-200 uppercase tracking-wider">
-                Lab Bench <span className="text-gray-600">/</span> {isFlashcards ? 'Flashpoint' : isSynthesis ? 'Synthesizer' : artifact.language || 'Editor'}
+              <span className="text-xs font-bold text-gray-200 uppercase tracking-wider hidden sm:inline">
+                Lab Bench <span className="text-gray-600">/</span>
               </span>
+              
+              {/* LANGUAGE SELECTOR */}
+              {isCode && (
+                <select
+                  value={artifact.language || 'javascript'}
+                  onChange={(e) => handleLanguageChange(e.target.value)}
+                  className="bg-black/30 border border-white/10 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-white/30 cursor-pointer"
+                >
+                  {SUPPORTED_LANGUAGES.map(lang => (
+                    <option key={lang} value={lang}>{lang}</option>
+                  ))}
+                </select>
+              )}
+              {(!isCode) && (
+                <span className="text-xs font-bold text-gray-200 uppercase tracking-wider">
+                  {isFlashcards ? 'Flashpoint' : 'Synthesizer'}
+                </span>
+              )}
             </div>
             
             <div className="flex items-center gap-1">
@@ -998,7 +1093,7 @@ export const LabBench = ({ artifacts: initialArtifacts = [], onClose, theme }) =
           ) : view === 'preview' && isWeb ? (
             <iframe 
               key={key} 
-              srcDoc={artifact.content} 
+              srcDoc={getCombinedPreview()} // Use the new function here
               className="w-full h-full border-none bg-white" 
               sandbox="allow-scripts allow-modals"
               title="Preview"
