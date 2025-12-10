@@ -153,11 +153,11 @@ const getEventColor = (type, isDev) => {
 };
 
 const generateICS = (events) => {
-  let icsContent = "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//OmniLab//Horizon//EN\nCALSCALE:GREGORIAN\nMETHOD:PUBLISH\n";
+  let icsContent = "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Brainless//Horizon//EN\nCALSCALE:GREGORIAN\nMETHOD:PUBLISH\n";
   
   events.forEach(event => {
     const start = event.date.replace(/-/g, '');
-    const uid = `${event.id || Math.random().toString(36).substr(2, 9)}@omnilab.app`;
+    const uid = `${event.id || Math.random().toString(36).substr(2, 9)}@Brainless.app`;
     const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
     
     icsContent += `BEGIN:VEVENT\n`;
@@ -188,7 +188,7 @@ const generateICS = (events) => {
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `omnilab-calendar-${new Date().toISOString().split('T')[0]}.ics`;
+  a.download = `Brainless-calendar-${new Date().toISOString().split('T')[0]}.ics`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

@@ -208,7 +208,7 @@ const MessageBubble = React.memo(({ msg, theme, fontSize, isStreaming }) => {
 
       <div className={clsx("flex-1 min-w-0 max-w-3xl", isUser ? "flex flex-col items-end" : "")}>
         <div className={clsx("flex items-center gap-2 mb-2", isUser ? "justify-end" : "")}>
-          <span className="text-xs font-semibold text-white/80">{isUser ? 'You' : 'OmniLab'}</span>
+          <span className="text-xs font-semibold text-white/80">{isUser ? 'You' : 'Brainless'}</span>
           {!isUser && <span className={`text-[9px] ${theme.softBg} ${theme.accentText} px-1.5 py-0.5 rounded border border-white/10 uppercase tracking-wider font-bold`}>AI</span>}
         </div>
         
@@ -559,7 +559,7 @@ export const Workspace = () => {
                 <div className={`inline-block p-6 rounded-[2rem] ${theme.softBg} border ${theme.primaryBorder} mb-4 shadow-[0_0_80px_-20px_rgba(99,102,241,0.25)]`}>
                   <Sparkles size={56} className={theme.accentText} />
                 </div>
-                <h1 className="text-5xl font-bold text-white tracking-tighter">OmniLab <span className={theme.accentText}>{settings.developerMode ? 'Forge' : 'Nexus'}</span></h1>
+                <h1 className="text-5xl font-bold text-white tracking-tighter">Brainless <span className={theme.accentText}>{settings.developerMode ? 'Forge' : 'Nexus'}</span></h1>
                 <p className="text-gray-500 max-w-md mx-auto text-sm leading-relaxed font-light">{settings.developerMode ? 'Advanced Architecture & Engineering Environment.' : 'Universal Research & Knowledge Synthesis Engine.'}</p>
                 <div className="mt-8">
                   <QuickActions 
@@ -625,7 +625,7 @@ export const Workspace = () => {
               <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder={`Message ${settings.developerMode ? 'Forge' : 'Nexus'}...`} className="w-full bg-transparent border-none focus:ring-0 text-white placeholder-gray-500 text-sm resize-none max-h-32 min-h-[24px] py-3 px-4 custom-scrollbar font-medium outline-none" rows={1} />
               <button onClick={handleSend} disabled={isLoading || (!input.trim() && attachments.length === 0)} className={`mb-1 mr-1 p-2.5 rounded-full bg-white text-black ${theme.hoverBg} disabled:opacity-50 disabled:bg-gray-800 disabled:text-gray-600 transition-all shadow-lg shadow-white/5`}>{isLoading ? <StopCircle size={16} /> : <ArrowUp size={16} />}</button>
             </div>
-            <div className="text-center flex items-center justify-center gap-2 opacity-30 hover:opacity-100 transition-opacity duration-500"><div className={`w-2 h-2 rounded-full ${isLoading ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'}`}/><span className="text-[9px] text-gray-600 uppercase tracking-[0.2em] font-medium">OmniLab {settings.developerMode ? 'Forge' : 'Nexus'} OS</span></div>
+            <div className="text-center flex items-center justify-center gap-2 opacity-30 hover:opacity-100 transition-opacity duration-500"><div className={`w-2 h-2 rounded-full ${isLoading ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'}`}/><span className="text-[9px] text-gray-600 uppercase tracking-[0.2em] font-medium">Brainless {settings.developerMode ? 'Forge' : 'Nexus'} OS</span></div>
           </div>
         </div>
       </div>

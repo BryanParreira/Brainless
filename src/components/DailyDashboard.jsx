@@ -658,7 +658,7 @@ export const DailyDashboard = () => {
           className="flex items-center justify-center gap-2 text-xs text-gray-700 font-mono pt-4"
         >
           <Sparkles size={12} className="text-gray-600" />
-          <span>Powered by OmniLab Intelligence</span>
+          <span>Powered by Brainless Intelligence</span>
         </motion.div>
 
       </div>
