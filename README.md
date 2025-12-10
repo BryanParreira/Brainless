@@ -1,24 +1,24 @@
 <div align="center">
 
-<img src="icon.png" alt="OmniLab Logo" width="120" height="120">
+<img src="icon.png" alt="Brainless Logo" width="120" height="120">
 
-# OmniLab
+# Brainless
 
 ### The Cognitive AI Operating System
 
 **Run powerful AI workflows locally. No clouds. No limits. Pure intelligence.**
 
-[![Download](https://img.shields.io/badge/Download-Latest-blue?style=for-the-badge)](https://github.com/bryanparreira/omnilab/releases)
-[![Documentation](https://img.shields.io/badge/Docs-Read-green?style=for-the-badge)](https://github.com/bryanparreira/omnilab/wiki)
+[![Download](https://img.shields.io/badge/Download-Latest-blue?style=for-the-badge)](https://github.com/bryanparreira/Brainless/releases)
+[![Documentation](https://img.shields.io/badge/Docs-Read-green?style=for-the-badge)](https://github.com/bryanparreira/Brainless/wiki)
 [![License](https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge)](LICENSE)
 
 </div>
 
 ---
 
-## 🎯 What is OmniLab?
+## 🎯 What is Brainless?
 
-**OmniLab is not a chatbot**—it's a **local-first cognitive workspace** engineered for heavy intellectual lifting. Built for engineers, architects, researchers, and writers who demand total privacy, zero latency, and uncompromising computational power.
+**Brainless is not a chatbot**—it's a **local-first cognitive workspace** engineered for heavy intellectual lifting. Built for engineers, architects, researchers, and writers who demand total privacy, zero latency, and uncompromising computational power.
 
 - **🔒 Every interaction stays on your machine**
 - **⚡ Every model runs locally through Ollama**
@@ -30,7 +30,8 @@
 
 ### Prerequisites
 
-Before installing OmniLab, ensure you have:
+Before installing Brainless, ensure you have:
+
 - **Ollama** runtime with Gemma 3 model
 - **Git** (optional, for Forge mode)
 
@@ -38,11 +39,12 @@ Before installing OmniLab, ensure you have:
 
 ### 🛠️ Step 1: Install Ollama & Download Gemma 3
 
-OmniLab relies on Ollama to run local models. Follow these steps to set it up:
+Brainless relies on Ollama to run local models. Follow these steps to set it up:
 
 #### Install Ollama Runtime
 
 **macOS:**
+
 ```bash
 # Download and install Ollama
 curl -fsSL https://ollama.com/install.sh | sh
@@ -52,6 +54,7 @@ open https://ollama.com/download/mac
 ```
 
 **Windows:**
+
 ```powershell
 # Download the installer from:
 https://ollama.com/download/windows
@@ -61,6 +64,7 @@ winget install Ollama.Ollama
 ```
 
 **Linux:**
+
 ```bash
 # Install Ollama with one command
 curl -fsSL https://ollama.com/install.sh | sh
@@ -75,6 +79,7 @@ ollama pull gemma3:4b
 ```
 
 **Verify installation:**
+
 ```bash
 ollama run gemma3:4b
 ```
@@ -83,21 +88,21 @@ You should see `>>>` prompt. Type `/bye` to exit. You're ready! ✅
 
 ---
 
-### 📥 Step 2: Install OmniLab
+### 📥 Step 2: Install Brainless
 
 <div align="center">
 
-| 🍎 macOS | 🪟 Windows | 🐧 Linux |
-|:--------:|:----------:|:--------:|
-| [Download .dmg](https://github.com/bryanparreira/omnilab/releases)<br>Intel & Apple Silicon | [Download .exe](https://github.com/bryanparreira/omnilab/releases)<br>x86_64 & ARM64 | [Download .AppImage](https://github.com/bryanparreira/omnilab/releases)<br>Universal Binary |
+|                                           🍎 macOS                                            |                                       🪟 Windows                                       |                                           🐧 Linux                                            |
+| :-------------------------------------------------------------------------------------------: | :------------------------------------------------------------------------------------: | :-------------------------------------------------------------------------------------------: |
+| [Download .dmg](https://github.com/bryanparreira/Brainless/releases)<br>Intel & Apple Silicon | [Download .exe](https://github.com/bryanparreira/Brainless/releases)<br>x86_64 & ARM64 | [Download .AppImage](https://github.com/bryanparreira/Brainless/releases)<br>Universal Binary |
 
 </div>
 
 #### Setup Steps
 
 1. Download the appropriate installer for your platform
-2. Install OmniLab (drag to Applications on macOS, run installer on Windows/Linux)
-3. Launch OmniLab—it automatically detects Ollama on startup
+2. Install Brainless (drag to Applications on macOS, run installer on Windows/Linux)
+3. Launch Brainless—it automatically detects Ollama on startup
 4. Select **Forge** or **Nexus** mode from the home screen
 5. Start building! 🚀
 
@@ -116,6 +121,7 @@ You should see `>>>` prompt. Type `/bye` to exit. You're ready! ✅
 - **Multiple node types**: Notes, files, databases, components, tasks, documentation
 
 **Use Cases:**
+
 - System architecture planning
 - Project roadmapping
 - Knowledge mapping
@@ -129,12 +135,14 @@ You should see `>>>` prompt. Type `/bye` to exit. You're ready! ✅
 **Professional writing environment** with AI-powered assistance and real-time intelligence.
 
 #### Writing Modes
+
 - **Freewrite**: Pure creativity, no constraints
 - **Structured**: Organized sections and outlines
 - **Research**: Academic writing with formal language
 - **Creative**: Fiction and narrative storytelling
 
 #### Features
+
 - **Ghost Writer (Cmd+J)**: AI text completion that adapts to your writing mode
 - **Lumina Lens**: Select text → Expand, Simplify, or Fix Grammar instantly
 - **Live Stats**: Word count, complexity analysis, read time
@@ -143,6 +151,7 @@ You should see `>>>` prompt. Type `/bye` to exit. You're ready! ✅
 - **Auto-save**: Never lose your work
 
 **Perfect for:**
+
 - Essays and articles
 - Creative writing
 - Documentation
@@ -156,6 +165,7 @@ You should see `>>>` prompt. Type `/bye` to exit. You're ready! ✅
 **Smart calendar** with voice commands and intelligent event handling.
 
 #### Features
+
 - **Voice Commands**: "Schedule meeting with John tomorrow at 3pm"
 - **Better Date/Time Pickers**: Native dark mode support
 - **Event Types**: Meeting, deadline, task, study session, personal
@@ -164,6 +174,7 @@ You should see `>>>` prompt. Type `/bye` to exit. You're ready! ✅
 - **Quick Add**: Create events in seconds with natural language
 
 #### Voice Commands Examples
+
 ```
 "Add meeting with Sarah next Monday at 2pm"
 "Schedule dentist appointment for March 15th at 10am"
@@ -177,6 +188,7 @@ You should see `>>>` prompt. Type `/bye` to exit. You're ready! ✅
 **Multi-modal chat** with drag-and-drop file uploads and rich context.
 
 #### Features
+
 - **Image Analysis**: Upload images → AI describes and analyzes
 - **Document Chat**: PDF/text file analysis and Q&A
 - **Voice Input**: Speak your prompts (Whisper integration)
@@ -186,6 +198,7 @@ You should see `>>>` prompt. Type `/bye` to exit. You're ready! ✅
 - **Model Selection**: Choose from any Ollama model
 
 #### Supported File Types
+
 - 📄 Documents: PDF, TXT, MD, DOCX
 - 🖼️ Images: PNG, JPG, WEBP, GIF
 - 💾 Data: CSV, JSON, YAML
@@ -198,12 +211,15 @@ You should see `>>>` prompt. Type `/bye` to exit. You're ready! ✅
 **Your cognitive HQ**—see everything at a glance.
 
 #### Today at a Glance
+
 - **Stats Grid**: Today's events, active projects, recent chats, canvas nodes
 - **Today's Schedule**: All events with priority indicators
 - **Recent Activity**: Latest chats, projects, and edits
 
 #### Quick Launch Pad
+
 Four gorgeous cards to jump into any workspace:
+
 - **Canvas** (Blue): Visual thinking → Shows node count
 - **Zenith** (Amber): Writing suite → Ready to write
 - **Chronos** (Purple): Calendar → Today's events
@@ -226,12 +242,14 @@ Four gorgeous cards to jump into any workspace:
 ## 🎨 Design Philosophy
 
 ### Dark Theme First
+
 - Carefully crafted dark UI with high contrast
 - Glass morphism effects and subtle animations
 - Consistent color coding across features
 - Reduced eye strain for long sessions
 
 ### Keyboard-First Navigation
+
 - **Cmd+J**: AI Ghost Writer (Zenith)
 - **Cmd+S**: Save document
 - **Cmd+K**: Command palette (Chat)
@@ -239,6 +257,7 @@ Four gorgeous cards to jump into any workspace:
 - **Escape**: Close modals/exit focus mode
 
 ### Cross-Feature Integration
+
 - Canvas → Chronos: Export nodes as calendar events
 - Chronos → Canvas: Visualize deadlines as architecture
 - Chat → Projects: Save conversations to project context
@@ -248,16 +267,16 @@ Four gorgeous cards to jump into any workspace:
 
 ## 🔒 Privacy & Security
 
-OmniLab is built on a single principle: **your data never leaves your machine.**
+Brainless is built on a single principle: **your data never leaves your machine.**
 
-| Feature | Guarantee |
-|---------|-----------|
-| **100% Local Processing** | All AI runs on your hardware via Ollama |
-| **Zero Cloud Dependency** | No API calls, no external servers, no tracking |
-| **Complete Privacy** | Your conversations, documents, and data stay private |
-| **No Telemetry** | OmniLab never phones home |
-| **Offline Capable** | Works fully offline after initial setup |
-| **Open Model Support** | Use any Ollama-compatible model (Llama, Mistral, Gemma, etc.) |
+| Feature                   | Guarantee                                                     |
+| ------------------------- | ------------------------------------------------------------- |
+| **100% Local Processing** | All AI runs on your hardware via Ollama                       |
+| **Zero Cloud Dependency** | No API calls, no external servers, no tracking                |
+| **Complete Privacy**      | Your conversations, documents, and data stay private          |
+| **No Telemetry**          | Brainless never phones home                                   |
+| **Offline Capable**       | Works fully offline after initial setup                       |
+| **Open Model Support**    | Use any Ollama-compatible model (Llama, Mistral, Gemma, etc.) |
 
 **This is cognitive AI without compromise.**
 
@@ -265,31 +284,31 @@ OmniLab is built on a single principle: **your data never leaves your machine.**
 
 ## 📊 Feature Comparison
 
-|  | OmniLab | Generic Chatbot | Traditional Tools |
-|---|:---:|:---:|:---:|
-| **Local-First AI** | ✅ | ❌ | N/A |
-| **Visual Canvas** | ✅ | ❌ | Limited |
-| **Writing Suite** | ✅ | Basic | Separate app |
-| **Calendar Integration** | ✅ | ❌ | Separate app |
-| **Multi-modal Chat** | ✅ | Limited | ❌ |
-| **Voice Commands** | ✅ | Limited | ❌ |
-| **Cross-Feature Workflows** | ✅ | ❌ | Manual |
-| **Privacy Guarantee** | Absolute | ToS-dependent | Cloud-based |
-| **Project Management** | Native | ❌ | Separate app |
+|                             | Brainless | Generic Chatbot | Traditional Tools |
+| --------------------------- | :-------: | :-------------: | :---------------: |
+| **Local-First AI**          |    ✅     |       ❌        |        N/A        |
+| **Visual Canvas**           |    ✅     |       ❌        |      Limited      |
+| **Writing Suite**           |    ✅     |      Basic      |   Separate app    |
+| **Calendar Integration**    |    ✅     |       ❌        |   Separate app    |
+| **Multi-modal Chat**        |    ✅     |     Limited     |        ❌         |
+| **Voice Commands**          |    ✅     |     Limited     |        ❌         |
+| **Cross-Feature Workflows** |    ✅     |       ❌        |      Manual       |
+| **Privacy Guarantee**       | Absolute  |  ToS-dependent  |    Cloud-based    |
+| **Project Management**      |  Native   |       ❌        |   Separate app    |
 
 ---
 
 ## 💻 System Requirements
 
-| Component | Minimum | Recommended |
-|-----------|---------|-------------|
-| **Operating System** | macOS 11+, Windows 10+, Ubuntu 20.04+ | Latest stable release |
-| **RAM** | 8GB | 16GB+ |
-| **Disk Space** | 10GB free | 20GB+ free |
-| **CPU** | Dual-core | Quad-core+ |
-| **GPU** | Optional | NVIDIA/AMD for faster inference |
-| **Ollama** | Latest version | Latest version |
-| **Internet** | For initial setup only | Offline after setup |
+| Component            | Minimum                               | Recommended                     |
+| -------------------- | ------------------------------------- | ------------------------------- |
+| **Operating System** | macOS 11+, Windows 10+, Ubuntu 20.04+ | Latest stable release           |
+| **RAM**              | 8GB                                   | 16GB+                           |
+| **Disk Space**       | 10GB free                             | 20GB+ free                      |
+| **CPU**              | Dual-core                             | Quad-core+                      |
+| **GPU**              | Optional                              | NVIDIA/AMD for faster inference |
+| **Ollama**           | Latest version                        | Latest version                  |
+| **Internet**         | For initial setup only                | Offline after setup             |
 
 ---
 
@@ -333,6 +352,7 @@ OmniLab is built on a single principle: **your data never leaves your machine.**
 ## 🎯 Workflow Examples
 
 ### For Developers
+
 ```
 Morning:
 - Check Command Center for today's deadlines
@@ -353,6 +373,7 @@ Evening:
 ```
 
 ### For Writers
+
 ```
 - Start in Zenith with "Creative" mode
 - Use Ghost Writer for inspiration (Cmd+J)
@@ -363,6 +384,7 @@ Evening:
 ```
 
 ### For Students
+
 ```
 - Upload lecture notes and papers to Chat
 - Create mind maps in Canvas
@@ -375,11 +397,11 @@ Evening:
 
 ## 🔗 Resources
 
-- 📦 [**GitHub Repository**](https://github.com/bryanparreira/omnilab) — Source & development
-- ⬇️ [**Releases**](https://github.com/bryanparreira/omnilab/releases) — Latest builds for all platforms
-- 🐛 [**Issue Tracker**](https://github.com/bryanparreira/omnilab/issues) — Bug reports & feature requests
-- 📖 [**Documentation**](https://github.com/bryanparreira/omnilab/wiki) — Comprehensive guides
-- 💬 [**Discussions**](https://github.com/bryanparreira/omnilab/discussions) — Community & support
+- 📦 [**GitHub Repository**](https://github.com/bryanparreira/Brainless) — Source & development
+- ⬇️ [**Releases**](https://github.com/bryanparreira/Brainless/releases) — Latest builds for all platforms
+- 🐛 [**Issue Tracker**](https://github.com/bryanparreira/Brainless/issues) — Bug reports & feature requests
+- 📖 [**Documentation**](https://github.com/bryanparreira/Brainless/wiki) — Comprehensive guides
+- 💬 [**Discussions**](https://github.com/bryanparreira/Brainless/discussions) — Community & support
 
 ---
 
@@ -413,22 +435,23 @@ ollama pull gemma3:4b
 
 - **Slow AI responses?** → Use a smaller model (e.g., `gemma3:2b`)
 - **High memory usage?** → Close unused apps
-- **Model loading slow?** → Ensure Ollama is running before launching OmniLab
+- **Model loading slow?** → Ensure Ollama is running before launching Brainless
 
 ### Common Issues
 
-| Issue | Solution |
-|-------|----------|
-| "Cannot connect to Ollama" | Ensure Ollama is running on port 11434 |
-| "Model not available" | Run `ollama pull gemma3:4b` |
-| Files not saving | Check disk space and permissions |
-| Voice input not working | Grant microphone permissions in system settings |
+| Issue                      | Solution                                        |
+| -------------------------- | ----------------------------------------------- |
+| "Cannot connect to Ollama" | Ensure Ollama is running on port 11434          |
+| "Model not available"      | Run `ollama pull gemma3:4b`                     |
+| Files not saving           | Check disk space and permissions                |
+| Voice input not working    | Grant microphone permissions in system settings |
 
 ---
 
 ## 🗺️ Roadmap
 
 ### Coming Soon
+
 - 🔍 **Semantic Search**: Find anything across all your documents
 - 📊 **Analytics Dashboard**: Track your productivity and writing habits
 - 🔄 **Sync Options**: Optional encrypted cloud backup (opt-in only)
@@ -437,6 +460,7 @@ ollama pull gemma3:4b
 - 📱 **Mobile Companion**: View-only mobile app for reviewing work
 
 ### Under Consideration
+
 - Plugin system for community extensions
 - Advanced Canvas features (layers, templates, sharing)
 - Collaborative features (optional, local network only)
@@ -446,7 +470,7 @@ ollama pull gemma3:4b
 
 ## 📄 License
 
-OmniLab is proprietary software.
+Brainless is proprietary software.
 
 ```
 License:      Proprietary / Closed Source
@@ -456,35 +480,41 @@ Restrictions: Modification, reverse engineering, or redistribution is prohibited
 ```
 
 **You are free to:**
-- ✅ Use OmniLab for personal projects
-- ✅ Use OmniLab for commercial work
-- ✅ Run OmniLab on unlimited devices you own
+
+- ✅ Use Brainless for personal projects
+- ✅ Use Brainless for commercial work
+- ✅ Run Brainless on unlimited devices you own
 
 **You may not:**
+
 - ❌ Modify or reverse engineer the source code
-- ❌ Redistribute or resell OmniLab
+- ❌ Redistribute or resell Brainless
 - ❌ Remove copyright notices or branding
 
-For licensing questions, please [open an issue](https://github.com/bryanparreira/omnilab/issues).
+For licensing questions, please [open an issue](https://github.com/bryanparreira/Brainless/issues).
 
 ---
 
 ## 🤝 Contributing & Support
 
 ### Found a Bug?
-[→ Report it on GitHub Issues](https://github.com/bryanparreira/omnilab/issues)
+
+[→ Report it on GitHub Issues](https://github.com/bryanparreira/Brainless/issues)
 
 ### Have a Feature Request?
-[→ Start a discussion](https://github.com/bryanparreira/omnilab/discussions)
+
+[→ Start a discussion](https://github.com/bryanparreira/Brainless/discussions)
 
 ### Need Help?
-[→ Check the wiki](https://github.com/bryanparreira/omnilab/wiki) or [ask the community](https://github.com/bryanparreira/omnilab/discussions)
+
+[→ Check the wiki](https://github.com/bryanparreira/Brainless/wiki) or [ask the community](https://github.com/bryanparreira/Brainless/discussions)
 
 ---
 
 ## 🙏 Acknowledgments
 
-OmniLab is built with:
+Brainless is built with:
+
 - **Electron** - Cross-platform framework
 - **React** - UI framework
 - **Ollama** - Local AI inference engine
@@ -500,14 +530,14 @@ Special thanks to the open-source community for making local AI accessible to ev
 
 **Built with ❤️ by [Bryan Bernardo Parreira](https://github.com/bryanparreira)**
 
-*The operating system for cognitive work.*
+_The operating system for cognitive work._
 
-![GitHub stars](https://img.shields.io/github/stars/bryanparreira/omnilab?style=social)
-![GitHub forks](https://img.shields.io/github/forks/bryanparreira/omnilab?style=social)
-![GitHub watchers](https://img.shields.io/github/watchers/bryanparreira/omnilab?style=social)
+![GitHub stars](https://img.shields.io/github/stars/bryanparreira/Brainless?style=social)
+![GitHub forks](https://img.shields.io/github/forks/bryanparreira/Brainless?style=social)
+![GitHub watchers](https://img.shields.io/github/watchers/bryanparreira/Brainless?style=social)
 
 ---
 
-**⭐ Star this repo if OmniLab helps you think better!**
+**⭐ Star this repo if Brainless helps you think better!**
 
 </div>
