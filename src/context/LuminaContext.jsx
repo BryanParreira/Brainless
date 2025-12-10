@@ -852,7 +852,12 @@ export const LuminaProvider = ({ children }) => {
   }, [activeProject, currentModel, settings]);
 
   const openLabBench = useCallback((content, language) => {
-    setActiveArtifact({ content, language });
+  console.log('🔬 openLabBench called with:', { language, contentLength: content?.length });
+  setActiveArtifact({ 
+    content, 
+    language,
+    type: 'code' // Add type property
+  });
   }, []);
 
   const closeLabBench = useCallback(() => {

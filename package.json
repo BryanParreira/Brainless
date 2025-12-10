@@ -17,6 +17,7 @@
     "dist": "npm run build && electron-builder"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
     "cheerio": "^1.0.0-rc.12",
     "clsx": "^2.1.1",
     "cross-env": "^7.0.3",

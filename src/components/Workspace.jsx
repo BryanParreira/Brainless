@@ -581,7 +581,7 @@ export const Workspace = () => {
           </div>
         </div>
       </div>
-      {activeArtifact && <LabBench artifact={activeArtifact} onClose={closeLabBench} theme={theme} />}
+      {activeArtifact && <LabBench artifacts={[activeArtifact]} onClose={closeLabBench} theme={theme} />}
     </div>
   );
 };
