@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { CommandBar } from "./components/CommandBar"; 
 import { Sidebar } from "./components/Sidebar";
 import { Workspace } from "./components/Workspace";
@@ -8,9 +8,11 @@ import { Chronos } from "./components/Chronos";
 import { Canvas } from "./components/Canvas";
 import { Zenith } from "./components/Zenith";
 import { Settings } from "./components/Settings";
-import { CommandPalette } from "./components/CommandPalette"; // NEW
-import { DailyDashboard } from "./components/DailyDashboard"; // NEW
+import { CommandPalette } from "./components/CommandPalette";
+import { DailyDashboard } from "./components/DailyDashboard";
+import { TimeMachine } from "./components/TimeMachine";
 import { LuminaProvider, useLumina } from "./context/LuminaContext";
+import { AnimatePresence } from 'framer-motion';
 
 const MainContent = () => {
   const { currentView } = useLumina();
@@ -18,7 +20,7 @@ const MainContent = () => {
   let content;
   switch (currentView) {
     case 'home':
-      content = <DailyDashboard />; // NEW: Daily Dashboard
+      content = <DailyDashboard />;
       break;
     case 'cerebro': 
       content = <Cerebro />; 
@@ -53,31 +55,42 @@ const MainContent = () => {
 };
 
 const AppContent = () => {
-  const { isSettingsOpen, closeGlobalSettings, commandPaletteOpen, setCommandPaletteOpen } = useLumina();
+  const { 
+    isSettingsOpen, 
+    closeGlobalSettings, 
+    commandPaletteOpen, 
+    setCommandPaletteOpen,
+    timeMachineOpen,
+    setTimeMachineOpen
+  } = useLumina();
   
   return (
     <>
       <div className="flex h-screen w-screen bg-void text-white overflow-hidden p-3 gap-3 relative selection:bg-indigo-500/30">
-        {/* Background Noise Texture Overlay */}
         <div className="bg-noise"></div>
         
-        {/* Sidebar Container */}
         <div className="w-[260px] flex flex-col z-20 h-full shrink-0">
           <Sidebar />
         </div>
         
-        {/* Main Application Area */}
         <MainContent />
       </div>
       
-      {/* Global Settings Modal */}
       <Settings isOpen={isSettingsOpen} onClose={closeGlobalSettings} />
       
-      {/* NEW: Command Palette (Cmd+K) */}
       <CommandPalette 
         isOpen={commandPaletteOpen} 
         onClose={() => setCommandPaletteOpen(false)} 
       />
+
+      <AnimatePresence>
+        {timeMachineOpen && (
+          <TimeMachine
+            isOpen={timeMachineOpen}
+            onClose={() => setTimeMachineOpen(false)}
+          />
+        )}
+      </AnimatePresence>
     </>
   );
 };

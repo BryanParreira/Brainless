@@ -9,9 +9,7 @@ const messagesReducer = (state, action) => {
       return [...state, { 
         role: 'user', 
         content: action.payload.text,
-        // CRITICAL: Store attachments for DISPLAY only, not for sending to AI
         attachments: action.payload.attachments || [],
-        // Flag to indicate attachments were already processed
         attachmentsProcessed: true
       }];
     case 'ADD_ASSISTANT_MESSAGE':
@@ -23,7 +21,6 @@ const messagesReducer = (state, action) => {
         { ...state[state.length - 1], content: state[state.length - 1].content + action.payload }
       ];
     case 'SET_MESSAGES':
-      // When loading old sessions, mark all messages as processed
       return action.payload.map(msg => ({
         ...msg,
         attachmentsProcessed: true
@@ -45,7 +42,8 @@ export const LuminaProvider = ({ children }) => {
     systemPrompt: "",
     developerMode: false,
     fontSize: 14,
-    chatDensity: 'comfortable'
+    chatDensity: 'comfortable',
+    synapseEnabled: true // 🧠 NEW
   });
 
   const theme = useMemo(() => {
@@ -78,11 +76,10 @@ export const LuminaProvider = ({ children }) => {
   const [isInitialized, setIsInitialized] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // --- ARTIFACTS / LAB BENCH STATE (UPDATED FOR TABS) ---
-  const [artifacts, setArtifacts] = useState([]); // Array of open tabs
-  const [activeArtifactId, setActiveArtifactId] = useState(null); // ID of currently visible tab
+  // --- ARTIFACTS / LAB BENCH STATE ---
+  const [artifacts, setArtifacts] = useState([]);
+  const [activeArtifactId, setActiveArtifactId] = useState(null);
 
-  // Computed property for the currently active object
   const activeArtifact = useMemo(() => 
     artifacts.find(a => a.id === activeArtifactId) || null
   , [artifacts, activeArtifactId]);
@@ -91,6 +88,18 @@ export const LuminaProvider = ({ children }) => {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [undoHistory, setUndoHistory] = useState([]);
   const [redoHistory, setRedoHistory] = useState([]);
+
+  // --- PHASE 2: ACTIVE CONTEXT STATE ---
+  const [activeContextOpen, setActiveContextOpen] = useState(false);
+  const [currentInput, setCurrentInput] = useState('');
+
+  // --- PHASE 3: TIME MACHINE STATE ---
+  const [timeMachineSnapshots, setTimeMachineSnapshots] = useState([]);
+  const [currentSnapshotIndex, setCurrentSnapshotIndex] = useState(-1);
+  const [timeMachineOpen, setTimeMachineOpen] = useState(false);
+
+  // --- PHASE 3C: SYNAPSE STATE ---
+  const [synapseStats, setSynapseStats] = useState(null);
 
   // --- CANVAS STATE ---
   const [canvasNodes, setCanvasNodes] = useState([]);
@@ -135,6 +144,36 @@ export const LuminaProvider = ({ children }) => {
     setUndoHistory(prev => [...prev, lastRedo]);
   }, [redoHistory]);
 
+  // --- PHASE 2: NAVIGATION HANDLER ---
+  const handleContextNavigation = useCallback((source, metadata) => {
+    console.log('🧭 Navigating to:', source, metadata);
+    
+    switch (source) {
+      case 'zenith':
+        if (metadata.filename) {
+          setCurrentView('zenith');
+        }
+        break;
+        
+      case 'canvas':
+        setCurrentView('canvas');
+        break;
+        
+      case 'chat':
+        if (metadata.sessionId) {
+          loadSession(metadata.sessionId);
+          setCurrentView('chat');
+        }
+        break;
+        
+      case 'chronos':
+        setCurrentView('chronos');
+        break;
+    }
+    
+    setActiveContextOpen(false);
+  }, [setCurrentView]);
+
   // --- PHASE 1: KEYBOARD SHORTCUTS ---
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -150,6 +189,10 @@ export const LuminaProvider = ({ children }) => {
         e.preventDefault();
         performRedo();
       }
+      if ((e.metaKey || e.ctrlKey) && e.key === 't') {
+        e.preventDefault();
+        setTimeMachineOpen(prev => !prev);
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -159,17 +202,36 @@ export const LuminaProvider = ({ children }) => {
   const addCanvasNode = useCallback((type, x, y, data = {}) => {
     const newNode = { id: uuidv4(), type, x, y, data: { title: 'New Item', content: '', ...data } };
     setCanvasNodes(prev => [...prev, newNode]);
+    
+    // 🧠 AUTO-INDEX IN SYNAPSE
+    if (window.lumina?.synapse && newNode.data.content) {
+      window.lumina.synapse.index('canvas', type, newNode.data.content, {
+        nodeId: newNode.id,
+        title: newNode.data.title
+      }).catch(err => console.warn('Synapse index error:', err));
+    }
+    
     addToUndoHistory({
       type: 'add-canvas-node',
       data: { node: newNode },
       undo: () => setCanvasNodes(prev => prev.filter(n => n.id !== newNode.id))
     });
+    return newNode.id;
   }, [addToUndoHistory]);
 
   const updateCanvasNode = useCallback((id, updates) => {
     const oldNode = canvasNodes.find(n => n.id === id);
     if (!oldNode) return;
     setCanvasNodes(prev => prev.map(n => n.id === id ? { ...n, ...updates } : n));
+    
+    // 🧠 RE-INDEX IN SYNAPSE IF CONTENT CHANGED
+    if (window.lumina?.synapse && updates.data?.content) {
+      window.lumina.synapse.index('canvas', oldNode.type, updates.data.content, {
+        nodeId: id,
+        title: updates.data?.title || oldNode.data.title
+      }).catch(err => console.warn('Synapse index error:', err));
+    }
+    
     addToUndoHistory({
       type: 'update-canvas-node',
       data: { id, oldNode, updates },
@@ -213,6 +275,18 @@ export const LuminaProvider = ({ children }) => {
           const events = await window.lumina.loadCalendar();
           setCalendarEvents(events || []);
         } catch (e) {}
+        
+        // 🧠 Load Synapse stats
+        if (window.lumina?.synapse) {
+          try {
+            const stats = await window.lumina.synapse.stats();
+            setSynapseStats(stats);
+            console.log('🧠 Synapse loaded:', stats.totalChunks, 'chunks indexed');
+          } catch (e) {
+            console.warn('Could not load Synapse stats');
+          }
+        }
+        
         if (m.length > 0) setCurrentModel(m.includes(s.defaultModel) ? s.defaultModel : m[0]);
         setSessionId(uuidv4());
         setIsInitialized(true);
@@ -222,6 +296,29 @@ export const LuminaProvider = ({ children }) => {
     };
     init();
   }, []);
+
+  // --- PHASE 3: AUTO-SNAPSHOT SYSTEM ---
+  useEffect(() => {
+    if (!isInitialized) return;
+    
+    const snapshotInterval = setInterval(() => {
+      createSnapshot();
+    }, 5 * 60 * 1000);
+
+    return () => clearInterval(snapshotInterval);
+  }, [isInitialized]);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    
+    const debounce = setTimeout(() => {
+      if (canvasNodes.length > 0 || messages.length > 0) {
+        createSnapshot();
+      }
+    }, 2000);
+
+    return () => clearTimeout(debounce);
+  }, [canvasNodes, messages, calendarEvents, isInitialized]);
 
   // --- LISTENERS ---
   useEffect(() => {
@@ -279,105 +376,181 @@ export const LuminaProvider = ({ children }) => {
       setUndoHistory([]);
       setRedoHistory([]);
       setSessionId(uuidv4());
+      setSynapseStats(null);
     } catch (e) {
       console.error('Factory reset failed:', e);
     }
   }, []);
 
-  // ====================================================================
-  // CRITICAL FIX: sendMessage - Prevent Image Hallucination
-  // ====================================================================
-  const sendMessage = useCallback(async (text, attachments) => {
-    // Normalize attachments to always be an array
-    const normalizedAttachments = Array.isArray(attachments) ? attachments : [];
-    
-    console.log('📨 sendMessage called with:', { 
-      text: text?.slice(0, 50), 
-      attachmentCount: normalizedAttachments.length,
-      isLoading,
-      currentModel,
-      messagesInHistory: messages.length
+  // --- PHASE 3: TIME MACHINE FUNCTIONS ---
+  const createSnapshot = useCallback(() => {
+    const snapshot = {
+      id: uuidv4(),
+      timestamp: Date.now(),
+      data: {
+        canvasNodes: JSON.parse(JSON.stringify(canvasNodes)),
+        canvasConnections: JSON.parse(JSON.stringify(canvasConnections)),
+        messages: JSON.parse(JSON.stringify(messages)),
+        calendarEvents: JSON.parse(JSON.stringify(calendarEvents)),
+        activeProject: activeProject ? { ...activeProject } : null,
+        currentView
+      }
+    };
+
+    setTimeMachineSnapshots(prev => {
+      const updated = [...prev, snapshot].slice(-100);
+      
+      try {
+        localStorage.setItem('timeMachineSnapshots', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('Could not save snapshots to localStorage');
+      }
+      
+      return updated;
     });
 
-    // Validation
+    setCurrentSnapshotIndex(prev => prev + 1);
+    
+    console.log('📸 Snapshot created:', new Date(snapshot.timestamp).toLocaleString());
+  }, [canvasNodes, canvasConnections, messages, calendarEvents, activeProject, currentView]);
+
+  const restoreSnapshot = useCallback((index) => {
+    const snapshot = timeMachineSnapshots[index];
+    if (!snapshot) return;
+
+    console.log('⏪ Restoring snapshot:', new Date(snapshot.timestamp).toLocaleString());
+
+    setCanvasNodes(snapshot.data.canvasNodes);
+    setCanvasConnections(snapshot.data.canvasConnections);
+    messagesDispatch({ type: 'SET_MESSAGES', payload: snapshot.data.messages });
+    setCalendarEvents(snapshot.data.calendarEvents);
+    
+    if (snapshot.data.activeProject) {
+      setActiveProject(snapshot.data.activeProject);
+    }
+    
+    setCurrentView(snapshot.data.currentView);
+    setCurrentSnapshotIndex(index);
+
+    setTimeout(() => createSnapshot(), 100);
+  }, [timeMachineSnapshots, createSnapshot]);
+
+  const deleteSnapshot = useCallback((index) => {
+    setTimeMachineSnapshots(prev => {
+      const updated = prev.filter((_, i) => i !== index);
+      
+      try {
+        localStorage.setItem('timeMachineSnapshots', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('Could not save snapshots');
+      }
+      
+      return updated;
+    });
+
+    if (currentSnapshotIndex >= index) {
+      setCurrentSnapshotIndex(prev => Math.max(0, prev - 1));
+    }
+  }, [currentSnapshotIndex]);
+
+  const exportSnapshot = useCallback((index) => {
+    const snapshot = timeMachineSnapshots[index];
+    if (!snapshot) return;
+
+    const dataStr = JSON.stringify(snapshot, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.download = `workspace-snapshot-${new Date(snapshot.timestamp).toISOString()}.json`;
+    link.href = url;
+    link.click();
+  }, [timeMachineSnapshots]);
+
+  const loadSnapshotsFromStorage = useCallback(() => {
+    try {
+      const stored = localStorage.getItem('timeMachineSnapshots');
+      if (stored) {
+        const snapshots = JSON.parse(stored);
+        setTimeMachineSnapshots(snapshots);
+        setCurrentSnapshotIndex(snapshots.length - 1);
+        console.log('📚 Loaded', snapshots.length, 'snapshots from storage');
+      }
+    } catch (e) {
+      console.warn('Could not load snapshots from storage');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isInitialized) {
+      loadSnapshotsFromStorage();
+    }
+  }, [isInitialized, loadSnapshotsFromStorage]);
+
+  // --- PHASE 3C: SYNAPSE HELPER FUNCTIONS ---
+  const refreshSynapseStats = useCallback(async () => {
+    if (window.lumina?.synapse) {
+      try {
+        const stats = await window.lumina.synapse.stats();
+        setSynapseStats(stats);
+        return stats;
+      } catch (e) {
+        console.error('Synapse stats refresh failed:', e);
+        return null;
+      }
+    }
+  }, []);
+
+  // --- SEND MESSAGE ---
+  const sendMessage = useCallback(async (text, attachments) => {
+    const normalizedAttachments = Array.isArray(attachments) ? attachments : [];
+    
     if (!text || !text.trim()) {
       if (normalizedAttachments.length === 0) {
-        console.warn('⚠️ No text or attachments provided');
         return;
       }
     }
     
     if (isLoading) {
-      console.warn('⚠️ Already loading, ignoring send');
       return;
     }
     
     if (!currentModel) {
-      console.error('❌ No model selected');
       alert('Please select an AI model first');
       return;
     }
 
-    // ========================================
-    // STEP 1: Process CURRENT attachments ONLY
-    // ========================================
     let images = [];
     let documentContext = "";
 
     if (normalizedAttachments.length > 0) {
-      console.log('📎 Processing NEW attachments for THIS message only');
-      
       for (const att of normalizedAttachments) {
         if (att.type === 'image' && att.data) {
-          // Image is already base64 from Workspace component
-          // Remove the data:image/...;base64, prefix for Ollama
           const base64Data = att.data.split(',')[1];
           if (base64Data) {
             images.push(base64Data);
-            console.log('🖼️ Added image to current message context');
           }
         } else if (att.type === 'file') {
-          // For text files, note that a file was attached
           documentContext += `\n--- UPLOADED FILE: ${att.name} ---\n`;
-          console.log('📄 Added file context:', att.name);
         }
       }
     }
 
-    // ========================================
-    // STEP 2: Build conversation context (TEXT ONLY, NO IMAGES)
-    // ========================================
-    // Only include recent conversation for context (last 10 messages)
     const conversationHistory = messages.slice(-10).map(msg => {
-      // Strip out any image references, just keep the text
       const role = msg.role === 'user' ? 'USER' : 'ASSISTANT';
       return `${role}: ${msg.content}`;
     }).join('\n\n');
 
-    console.log('📜 Built conversation history (text only, last 10 messages)');
-
-    // ========================================
-    // STEP 3: Add user message with attachments (for DISPLAY only)
-    // ========================================
-    console.log('➕ Adding user message to chat');
     messagesDispatch({ 
       type: 'ADD_USER_MESSAGE', 
       payload: { 
         text: text || '', 
-        attachments: normalizedAttachments // Stored for UI display, not sent to AI again
+        attachments: normalizedAttachments
       } 
     });
 
-    // ========================================
-    // STEP 4: Add empty assistant message
-    // ========================================
-    console.log('➕ Adding empty assistant message');
     messagesDispatch({ type: 'ADD_ASSISTANT_MESSAGE' });
     setIsLoading(true);
 
-    // ========================================
-    // STEP 5: Get project context (text files only)
-    // ========================================
     let contextFiles = [];
     let systemPrompt = settings.systemPrompt;
     let pid = null;
@@ -387,42 +560,26 @@ export const LuminaProvider = ({ children }) => {
       const liveProject = projects.find(p => p.id === activeProject.id);
       contextFiles = liveProject ? liveProject.files : activeProject.files || [];
       systemPrompt = liveProject?.systemPrompt || settings.systemPrompt;
-      console.log('📁 Using project context:', pid);
     }
 
-    // ========================================
-    // STEP 6: Build enriched prompt with conversation context
-    // ========================================
     let enrichedPrompt = text || '';
     
-    // Add conversation history for context continuity
     if (conversationHistory && messages.length > 0) {
       enrichedPrompt = `[CONVERSATION HISTORY]\n${conversationHistory}\n\n[CURRENT MESSAGE]\n${enrichedPrompt}`;
     }
     
-    // Add document context if present
     if (documentContext) {
       enrichedPrompt = `${documentContext}\n\n${enrichedPrompt}`;
     }
 
-    // ========================================
-    // CRITICAL: Add instruction to ONLY reference current images
-    // ========================================
     if (images.length > 0) {
-      // Prepend image instruction at the very beginning
       enrichedPrompt = `[IMPORTANT: You are being shown ${images.length} NEW image(s) with THIS current message. When the user asks about "the image" or "it", they mean THESE current images. DO NOT reference or mention any images from previous messages in the conversation history. Focus ONLY on these ${images.length} current image(s).]\n\n${enrichedPrompt}`;
-      console.log(`✅ Sending ${images.length} image(s) with ANTI-HALLUCINATION instruction`);
     } else {
-      console.log('✅ Sending text-only message (no images)');
-      // Even without images, remind AI not to hallucinate about past images
       if (messages.some(m => m.attachments && m.attachments.length > 0)) {
         enrichedPrompt = `[NOTE: No images are attached to this message. If the user references "the image" or visual content, they are referring to context from our previous conversation. Do not request file contents or assume there are new images.]\n\n${enrichedPrompt}`;
       }
     }
 
-    // ========================================
-    // STEP 7: Send to Ollama with ONLY current message's images
-    // ========================================
     try {
       window.lumina.sendPrompt(
         enrichedPrompt,
@@ -431,12 +588,10 @@ export const LuminaProvider = ({ children }) => {
         systemPrompt,
         settings,
         pid,
-        images, // ONLY images from THIS message, not previous messages
+        images,
         documentContext
       );
-      console.log('✅ Message sent to Ollama successfully');
     } catch (error) {
-      console.error('❌ Error sending to Ollama:', error);
       setIsLoading(false);
       messagesDispatch({ 
         type: 'APPEND_TO_LAST', 
@@ -452,7 +607,6 @@ export const LuminaProvider = ({ children }) => {
       setSessions(await window.lumina.getSessions());
     }
     
-    // CRITICAL: Clear messages to prevent context bleed
     messagesDispatch({ type: 'CLEAR_MESSAGES' });
     setSessionId(uuidv4());
     setIsLoading(false);
@@ -541,10 +695,13 @@ export const LuminaProvider = ({ children }) => {
       setProjects(updatedProjects);
       const updatedActive = updatedProjects.find(p => p.id === activeProject.id);
       if (updatedActive) setActiveProject(updatedActive);
+      
+      // 🧠 Refresh Synapse stats after adding files
+      await refreshSynapseStats();
     } catch (e) {
       console.error('Add files failed:', e);
     }
-  }, [activeProject]);
+  }, [activeProject, refreshSynapseStats]);
 
   const addFolder = useCallback(async () => {
     if (!activeProject) return;
@@ -554,10 +711,13 @@ export const LuminaProvider = ({ children }) => {
       setProjects(updatedProjects);
       const updatedActive = updatedProjects.find(p => p.id === activeProject.id);
       if (updatedActive) setActiveProject(updatedActive);
+      
+      // 🧠 Refresh Synapse stats after adding folder
+      await refreshSynapseStats();
     } catch (e) {
       console.error('Add folder failed:', e);
     }
-  }, [activeProject]);
+  }, [activeProject, refreshSynapseStats]);
 
   const addUrl = useCallback(async (url) => {
     if (!activeProject) return;
@@ -567,10 +727,13 @@ export const LuminaProvider = ({ children }) => {
       setProjects(updatedProjects);
       const updatedActive = updatedProjects.find(p => p.id === activeProject.id);
       if (updatedActive) setActiveProject(updatedActive);
+      
+      // 🧠 Refresh Synapse stats after adding URL
+      await refreshSynapseStats();
     } catch (e) {
       console.error('Add URL failed:', e);
     }
-  }, [activeProject]);
+  }, [activeProject, refreshSynapseStats]);
 
   const openFile = useCallback(async (file) => {
     if (file.type === 'url') {
@@ -615,7 +778,10 @@ export const LuminaProvider = ({ children }) => {
         await window.lumina.saveCalendar(reverted);
       }
     });
-  }, [calendarEvents, addToUndoHistory]);
+    
+    // 🧠 Refresh Synapse stats
+    await refreshSynapseStats();
+  }, [calendarEvents, addToUndoHistory, refreshSynapseStats]);
 
   const deleteEvent = useCallback(async (id) => {
     const deletedEvent = calendarEvents.find(e => e.id === id);
@@ -703,7 +869,10 @@ export const LuminaProvider = ({ children }) => {
     setCalendarEvents(updated);
     if (window.lumina) await window.lumina.saveCalendar(updated);
     setCurrentView('chronos');
-  }, [calendarEvents, settings]);
+    
+    // 🧠 Refresh Synapse stats
+    await refreshSynapseStats();
+  }, [calendarEvents, settings, refreshSynapseStats]);
 
   // --- AI AGENTS ---
   const runFlashpoint = useCallback(async () => {
@@ -736,7 +905,6 @@ export const LuminaProvider = ({ children }) => {
             title: 'Flashcards',
             timestamp: Date.now()
         };
-        // Use updated state setter for array
         setArtifacts(prev => [...prev, newDeck]);
         setActiveArtifactId(deckId);
         
@@ -856,28 +1024,22 @@ export const LuminaProvider = ({ children }) => {
     }
   }, [activeProject, currentModel, settings]);
 
-  // --- ARTIFACTS / LAB BENCH ACTIONS (UPDATED FOR TABS) ---
+  // --- ARTIFACTS / LAB BENCH ACTIONS ---
   const openLabBench = useCallback((content, language) => {
-    console.log('🔬 openLabBench called with:', { language, contentLength: content?.length });
-    
-    // Check if this content is already open in a tab to prevent duplicates
-    // We check against content equality for simplicity, though IDs are preferred if available
     const existing = artifacts.find(a => a.content === content && a.language === language);
     
     if (existing) {
-        // If it exists, just switch to that tab
         setActiveArtifactId(existing.id);
         return;
     }
 
-    // Create new artifact tab
     const newId = uuidv4();
     const newArtifact = { 
         id: newId, 
         content, 
         language,
         type: 'code',
-        title: `${language || 'text'} snippet`, // Basic title, can be improved
+        title: `${language || 'text'} snippet`,
         timestamp: Date.now()
     };
 
@@ -889,7 +1051,6 @@ export const LuminaProvider = ({ children }) => {
     setArtifacts(prev => {
         const newArr = prev.filter(a => a.id !== id);
         
-        // If we closed the active tab, switch to the last available one
         if (id === activeArtifactId) {
              if (newArr.length > 0) {
                  setActiveArtifactId(newArr[newArr.length - 1].id);
@@ -902,7 +1063,6 @@ export const LuminaProvider = ({ children }) => {
   }, [activeArtifactId]);
 
   const closeLabBench = useCallback(() => {
-    // Clear all
     setArtifacts([]);
     setActiveArtifactId(null);
   }, []);
@@ -970,13 +1130,13 @@ export const LuminaProvider = ({ children }) => {
     gitStatus,
 
     // Artifacts / Lab Bench
-    activeArtifact, // The computed current object
+    activeArtifact,
     activeArtifactId,
-    setActiveArtifactId, // To switch tabs
-    artifacts, // The array of all open tabs
+    setActiveArtifactId,
+    artifacts,
     openLabBench,
     closeLabBench,
-    closeArtifact, // New function to close specific tab
+    closeArtifact,
 
     // AI Agents
     runFlashpoint,
@@ -997,6 +1157,28 @@ export const LuminaProvider = ({ children }) => {
     performUndo,
     performRedo,
     addToUndoHistory,
+
+    // Phase 2: Active Context
+    activeContextOpen,
+    setActiveContextOpen,
+    currentInput,
+    setCurrentInput,
+    handleContextNavigation,
+
+    // Phase 3: Time Machine
+    timeMachineSnapshots,
+    currentSnapshotIndex,
+    setCurrentSnapshotIndex,
+    timeMachineOpen,
+    setTimeMachineOpen,
+    createSnapshot,
+    restoreSnapshot,
+    deleteSnapshot,
+    exportSnapshot,
+
+    // Phase 3C: Synapse
+    synapseStats,
+    refreshSynapseStats,
 
     // Podcast (TTS)
     togglePodcast: () => {
@@ -1053,15 +1235,12 @@ export const LuminaProvider = ({ children }) => {
     generateSchedule,
     currentView,
     gitStatus,
-    
-    // Updated Artifact dependencies
     activeArtifact,
     activeArtifactId,
     artifacts,
     openLabBench,
     closeLabBench,
     closeArtifact,
-    
     runFlashpoint,
     runBlueprint,
     runDiffDoctor,
@@ -1073,6 +1252,18 @@ export const LuminaProvider = ({ children }) => {
     performUndo,
     performRedo,
     addToUndoHistory,
+    activeContextOpen,
+    currentInput,
+    handleContextNavigation,
+    timeMachineSnapshots,
+    currentSnapshotIndex,
+    timeMachineOpen,
+    createSnapshot,
+    restoreSnapshot,
+    deleteSnapshot,
+    exportSnapshot,
+    synapseStats,
+    refreshSynapseStats,
     isSpeaking
   ]);
 

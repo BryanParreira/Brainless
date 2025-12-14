@@ -7,7 +7,7 @@ import {
   Move, Lock, Unlock, Eye, EyeOff, ChevronDown, Command, Map,
   Bookmark, FolderOpen, CheckSquare, MessageSquare, Link2,
   ChevronRight, Camera, Download, Upload, Image as ImageIcon, Square,
-  RotateCcw, RotateCw, CheckCircle, List, ExternalLink, Settings, X
+  RotateCcw, RotateCw, CheckCircle, List, ExternalLink, Settings, X, Brain
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -276,7 +276,8 @@ const CanvasNode = React.memo(({
     onDuplicate,
     onSpark, 
     onStartConnection,
-    onLock
+    onLock,
+    onShowContext
 }) => {
     const [showSparkMenu, setShowSparkMenu] = useState(false);
     const [isLocked, setIsLocked] = useState(node.locked || false);
@@ -360,6 +361,21 @@ const CanvasNode = React.memo(({
       onUpdate(node.id, { data: { ...node.data, items: newItems } });
     };
 
+    const handleShowContext = async () => {
+        if (window.lumina?.synapse) {
+            const query = `${node.data.title} ${node.data.content}`;
+            try {
+                const results = await window.lumina.synapse.search(query, {
+                    source: 'canvas',
+                    limit: 5
+                });
+                onShowContext(results, node);
+            } catch (err) {
+                console.error('Context search error:', err);
+            }
+        }
+    };
+
     return (
         <motion.div
             initial={{ scale: 0.8, opacity: 0, y: 20 }}
@@ -403,6 +419,14 @@ const CanvasNode = React.memo(({
                             title={isLocked ? "Unlock" : "Lock"}
                         >
                             {isLocked ? <Lock size={12}/> : <Unlock size={12}/>}
+                        </button>
+                        
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); handleShowContext(); }} 
+                            className="p-1 rounded transition-colors text-gray-500 hover:text-purple-400 hover:bg-purple-500/10"
+                            title="Find Related"
+                        >
+                            <Brain size={12}/>
                         </button>
                         
                         <button 
@@ -680,6 +704,7 @@ export const Canvas = () => {
   const [selectedFrame, setSelectedFrame] = useState(null);
   const [history, setHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [contextModal, setContextModal] = useState(null);
 
   // Refs
   const containerRef = useRef(null);
@@ -727,7 +752,7 @@ export const Canvas = () => {
     }
   }, [historyIndex, history]);
 
-  // Keyboard Shortcuts (removed command palette shortcuts)
+  // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
@@ -823,7 +848,6 @@ export const Canvas = () => {
         const dx = (e.clientX - startX) / currentZoom;
         const dy = (e.clientY - startY) / currentZoom;
         
-        // OPTIMIZED: Update nodes directly without delay
         initialNodes.forEach(n => {
             const newX = snapToGrid(n.x + dx);
             const newY = snapToGrid(n.y + dy);
@@ -957,6 +981,10 @@ export const Canvas = () => {
     });
     saveToHistory();
   }, [addCanvasNode, saveToHistory]);
+
+  const handleShowNodeContext = (results, node) => {
+    setContextModal({ results, node });
+  };
 
   // Smart Spark Agent
   const handleSpark = async (parentNode, mode = 'expand') => {
@@ -1483,6 +1511,7 @@ export const Canvas = () => {
                         onDuplicate={handleDuplicate}
                         onSpark={handleSpark}
                         onStartConnection={handleConnectionLogic}
+                        onShowContext={handleShowNodeContext}
                     />
                 ))}
             </AnimatePresence>
@@ -1588,6 +1617,57 @@ export const Canvas = () => {
             ]}
           />
         )}
+      </AnimatePresence>
+
+      {/* CONTEXT MODAL */}
+      <AnimatePresence>
+          {contextModal && (
+              <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center"
+                  onClick={() => setContextModal(null)}
+              >
+                  <motion.div
+                      initial={{ scale: 0.9, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      exit={{ scale: 0.9, opacity: 0 }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="bg-[#0A0A0A] border border-white/20 rounded-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden"
+                  >
+                      <div className="p-6 border-b border-white/10">
+                          <h3 className="text-xl font-bold text-white">Related to: {contextModal.node.data.title}</h3>
+                          <p className="text-sm text-gray-500 mt-1">{contextModal.results.length} connections found</p>
+                      </div>
+                      
+                      <div className="p-6 overflow-y-auto max-h-[60vh] space-y-3 custom-scrollbar">
+                          {contextModal.results.map((result, idx) => (
+                              <div key={idx} className="p-4 bg-white/5 rounded-xl border border-white/10">
+                                  <div className="flex items-center gap-2 mb-2">
+                                      <span className={`text-xs px-2 py-1 rounded ${theme.softBg} ${theme.accentText} font-bold uppercase`}>
+                                          {result.source}
+                                      </span>
+                                      <span className="text-xs text-gray-500">
+                                          {Math.round(result.relevance)}% relevant
+                                      </span>
+                                  </div>
+                                  <p className="text-sm text-gray-300">{result.content}</p>
+                              </div>
+                          ))}
+                      </div>
+                      
+                      <div className="p-4 border-t border-white/10 flex justify-end">
+                          <button
+                              onClick={() => setContextModal(null)}
+                              className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm text-white transition-colors"
+                          >
+                              Close
+                          </button>
+                      </div>
+                  </motion.div>
+              </motion.div>
+          )}
       </AnimatePresence>
     </div>
   );

@@ -2,109 +2,47 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('lumina', {
   // ==========================================
-  // 1. AI CORE (Ollama Bridge)
-  // ==========================================
-  checkOllamaStatus: (url) => ipcRenderer.invoke('ollama:status', url),
-  getModels: (url) => ipcRenderer.invoke('ollama:models', url),
-  
-  // Streaming Chat (Nexus) - NOW WITH MULTIMODAL SUPPORT
-  sendPrompt: (prompt, model, contextFiles, systemPrompt, settings, projectId, images, documentContext) => 
-    ipcRenderer.send('ollama:stream-prompt', { 
-      prompt, 
-      model, 
-      contextFiles, 
-      systemPrompt, 
-      settings, 
-      projectId,
-      images, // NEW: Base64 images for vision
-      documentContext // NEW: Extracted text from documents
-    }),
-  
-  // JSON Agent (Dossier / Flashcards)
-  generateJson: (prompt, model, settings, projectId) => ipcRenderer.invoke('ollama:generate-json', { prompt, model, settings, projectId }),
-  
-  // Text Completion (Zenith Ghost Writer)
-  generateCompletion: (prompt, model, settings) => ipcRenderer.invoke('ollama:completion', { prompt, model, settings }),
-
-  // --- NEW: File Processing ---
-  extractTextFromFile: (filePath) => ipcRenderer.invoke('file:extract-text', filePath),
-  processImage: (imageData) => ipcRenderer.invoke('file:process-image', imageData),
-
-  // --- AI Listeners ---
-  onResponseChunk: (cb) => {
-    const sub = (_e, data) => cb(data);
-    ipcRenderer.on('ollama:chunk', sub);
-    return () => ipcRenderer.removeListener('ollama:chunk', sub);
-  },
-  onAIError: (cb) => {
-    const sub = (_e, message) => cb(message);
-    ipcRenderer.on('ollama:error', sub);
-    return () => ipcRenderer.removeListener('ollama:error', sub);
-  },
-  
-  // ==========================================
-  // 2. UPDATER
-  // ==========================================
-  checkForUpdates: () => ipcRenderer.send('check-for-updates'),
-  downloadUpdate: () => ipcRenderer.send('download-update'),
-  quitAndInstall: () => ipcRenderer.send('quit-and-install'),
-  onUpdateMessage: (callback) => {
-    const sub = (_e, value) => callback(value);
-    ipcRenderer.on('update-message', sub);
-    return () => ipcRenderer.removeListener('update-message', sub);
-  },
-
-  // ==========================================
-  // 3. SYSTEM & FILES
+  // SETTINGS
   // ==========================================
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
-  resetSystem: () => ipcRenderer.invoke('system:factory-reset'),
   
-  // --- SPECIFIC DATA DELETION HANDLERS ---
+  // ==========================================
+  // SYSTEM
+  // ==========================================
+  resetSystem: () => ipcRenderer.invoke('system:factory-reset'),
   deleteChats: () => ipcRenderer.invoke('system:delete-chats'),
   deleteCache: () => ipcRenderer.invoke('system:delete-cache'),
   deleteCalendar: () => ipcRenderer.invoke('system:delete-calendar'),
   
-  // File System Operations - FIXED FOR ZENITH
-  listFiles: (directory) => ipcRenderer.invoke('system:list-files', directory),
-  readFile: (filename) => ipcRenderer.invoke('system:read-file', filename),
+  // ==========================================
+  // FILE OPERATIONS
+  // ==========================================
+  saveFile: (content, filename) => ipcRenderer.invoke('system:save-file', { content, filename }),
   saveGeneratedFile: (content, filename) => ipcRenderer.invoke('system:save-generated-file', { content, filename }),
+  readFile: (filename) => ipcRenderer.invoke('system:read-file', filename),
+  listFiles: (directory) => ipcRenderer.invoke('system:list-files', directory),
   deleteFile: (filename) => ipcRenderer.invoke('system:delete-file', filename),
   openFile: (filePath) => ipcRenderer.invoke('system:open-file', filePath),
   
-  // Command Bar Listener (Alt+Space)
-  onToggleCommandBar: (cb) => {
-      const sub = () => cb();
-      ipcRenderer.on('cmd-bar:toggle', sub);
-      return () => ipcRenderer.removeListener('cmd-bar:toggle', sub);
-  },
-
   // ==========================================
-  // 4. PROJECT MANAGEMENT
+  // PROJECTS
   // ==========================================
   getProjects: () => ipcRenderer.invoke('project:list'),
   createProject: (data) => ipcRenderer.invoke('project:create', data),
-  addFilesToProject: (id) => ipcRenderer.invoke('project:add-files', id),
-  addFolderToProject: (id) => ipcRenderer.invoke('project:add-folder', id),
-  addUrlToProject: (id, url) => ipcRenderer.invoke('project:add-url', { projectId: id, url }),
-  updateProjectSettings: (id, systemPrompt) => ipcRenderer.invoke('project:update-settings', { id, systemPrompt }),
   deleteProject: (id) => ipcRenderer.invoke('project:delete', id),
-  scaffoldProject: (projectId, structure) => ipcRenderer.invoke('project:scaffold', { projectId, structure }),
-  saveProjectDossier: (id, dossier) => ipcRenderer.invoke('project:save-dossier', { id, dossier }),
+  updateProjectSettings: (id, systemPrompt) => ipcRenderer.invoke('project:update-settings', { id, systemPrompt }),
   deleteFileFromProject: (projectId, filePath) => ipcRenderer.invoke('project:delete-file', { projectId, filePath }),
   addFileToProject: (projectId, filename) => ipcRenderer.invoke('project:add-file-to-project', { projectId, filename }),
-
+  addFilesToProject: (projectId) => ipcRenderer.invoke('project:add-files', projectId),
+  addFolderToProject: (projectId) => ipcRenderer.invoke('project:add-folder', projectId),
+  addUrlToProject: (projectId, url) => ipcRenderer.invoke('project:add-url', { projectId, url }),
+  scaffoldProject: (projectId, structure) => ipcRenderer.invoke('project:scaffold', { projectId, structure }),
+  saveProjectDossier: (id, dossier) => ipcRenderer.invoke('project:save-dossier', { id, dossier }),
+  generateProjectGraph: (projectId) => ipcRenderer.invoke('project:generate-graph', projectId),
+  
   // ==========================================
-  // 5. ADVANCED AGENTS (Graph, Research, Git)
-  // ==========================================
-  generateGraph: (id) => ipcRenderer.invoke('project:generate-graph', id),
-  runDeepResearch: (id, url) => ipcRenderer.invoke('agent:deep-research', { projectId: id, url }),
-  getGitStatus: (id) => ipcRenderer.invoke('git:status', id),
-  getGitDiff: (id) => ipcRenderer.invoke('git:diff', id),
-
-  // ==========================================
-  // 6. SESSIONS & CALENDAR
+  // SESSIONS
   // ==========================================
   saveSession: (data) => ipcRenderer.invoke('session:save', data),
   getSessions: () => ipcRenderer.invoke('session:list'),
@@ -112,6 +50,109 @@ contextBridge.exposeInMainWorld('lumina', {
   deleteSession: (id) => ipcRenderer.invoke('session:delete', id),
   renameSession: (id, title) => ipcRenderer.invoke('session:rename', { id, title }),
   
+  // ==========================================
+  // CALENDAR
+  // ==========================================
   loadCalendar: () => ipcRenderer.invoke('calendar:load'),
   saveCalendar: (events) => ipcRenderer.invoke('calendar:save', events),
+  
+  // ==========================================
+  // GIT
+  // ==========================================
+  getGitStatus: (projectId) => ipcRenderer.invoke('git:status', projectId),
+  getGitDiff: (projectId) => ipcRenderer.invoke('git:diff', projectId),
+  
+  // ==========================================
+  // AI AGENTS
+  // ==========================================
+  runDeepResearch: (projectId, url) => ipcRenderer.invoke('agent:deep-research', { projectId, url }),
+  
+  // ==========================================
+  // OLLAMA AI
+  // ==========================================
+  sendPrompt: (prompt, model, contextFiles, systemPrompt, settings, projectId, images, documentContext) => {
+    ipcRenderer.send('ollama:stream-prompt', {
+      prompt,
+      model,
+      contextFiles,
+      systemPrompt,
+      settings,
+      projectId,
+      images,
+      documentContext
+    });
+  },
+  
+  generateJson: (prompt, model, settings, projectId) => 
+    ipcRenderer.invoke('ollama:generate-json', { prompt, model, settings, projectId }),
+  
+  completion: (prompt, model, settings) => 
+    ipcRenderer.invoke('ollama:completion', { prompt, model, settings }),
+  
+  checkOllamaStatus: (url) => ipcRenderer.invoke('ollama:status', url),
+  getModels: (url) => ipcRenderer.invoke('ollama:models', url),
+  
+  // Ollama Event Listeners
+  onResponseChunk: (callback) => {
+    ipcRenderer.on('ollama:chunk', (_, chunk) => callback(chunk));
+    return () => ipcRenderer.removeAllListeners('ollama:chunk');
+  },
+  
+  onAIError: (callback) => {
+    ipcRenderer.on('ollama:error', (_, message) => callback(message));
+    return () => ipcRenderer.removeAllListeners('ollama:error');
+  },
+  
+  // ==========================================
+  // 🧠 SYNAPSE ENGINE v3.0 (FIXED)
+  // ==========================================
+  synapse: {
+    // Index content from any source
+    index: (source, type, content, metadata) => 
+      ipcRenderer.invoke('synapse:index', source, type, content, metadata),
+    
+    // Search across all indexed content
+    search: (query, options) => 
+      ipcRenderer.invoke('synapse:search', query, options),
+    
+    // Get active context for AI (FIXED - camelCase to match backend)
+    getContext: (query, currentSource) => 
+      ipcRenderer.invoke('synapse:getContext', query, currentSource),
+    
+    // Record user interaction (FIXED - added missing method)
+    recordInteraction: (chunkId) => 
+      ipcRenderer.invoke('synapse:recordInteraction', chunkId),
+    
+    // Get smart suggestions (FIXED - added missing method)
+    getSmartSuggestions: (currentSource, recentTerms) => 
+      ipcRenderer.invoke('synapse:getSmartSuggestions', currentSource, recentTerms),
+    
+    // Get auto-linked sources (FIXED - added missing method)
+    getLinkedSources: (sourceId) => 
+      ipcRenderer.invoke('synapse:getLinkedSources', sourceId),
+    
+    // Delete indexed content by source ID
+    delete: (sourceId) => 
+      ipcRenderer.invoke('synapse:delete', sourceId),
+    
+    // Get statistics
+    stats: () => 
+      ipcRenderer.invoke('synapse:stats'),
+    
+    // Clear all indexed data
+    clear: () => 
+      ipcRenderer.invoke('synapse:clear')
+  },
+  
+  // ==========================================
+  // UPDATER
+  // ==========================================
+  checkForUpdates: () => ipcRenderer.send('check-for-updates'),
+  downloadUpdate: () => ipcRenderer.send('download-update'),
+  quitAndInstall: () => ipcRenderer.send('quit-and-install'),
+  
+  onUpdateMessage: (callback) => {
+    ipcRenderer.on('update-message', (_, message) => callback(message));
+    return () => ipcRenderer.removeAllListeners('update-message');
+  }
 });

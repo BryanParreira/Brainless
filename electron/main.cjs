@@ -4,6 +4,7 @@ const fs = require('fs');
 const { createTray } = require('./tray.cjs'); 
 const { autoUpdater } = require("electron-updater");
 const log = require('electron-log');
+const { SynapseEngine } = require('./synapse.cjs');
 
 // --- 1. CONFIGURATION ---
 log.transports.file.level = 'info';
@@ -20,7 +21,8 @@ const loadGit = () => require('simple-git');
 
 // Global References
 let mainWindow;
-let tray = null; 
+let tray = null;
+let synapseEngine = null; // 🧠 Enhanced Synapse Engine v3.0
 
 // --- 3. FILE SYSTEM PATHS ---
 const getUserDataPath = () => app.getPath('userData');
@@ -45,7 +47,8 @@ const DEFAULT_SETTINGS = {
   systemPrompt: "",
   developerMode: false,
   fontSize: 14,
-  chatDensity: 'comfortable'
+  chatDensity: 'comfortable',
+  synapseEnabled: true // 🧠 Enable/disable Enhanced Synapse
 };
 
 // --- 4. WINDOW MANAGEMENT ---
@@ -269,7 +272,12 @@ const gitHandler = {
 // --- 9. APP INITIALIZATION ---
 app.whenReady().then(() => {
   createWindow();
-  tray = createTray(mainWindow); 
+  tray = createTray(mainWindow);
+  
+  // 🧠 Initialize Enhanced Synapse Engine v3.0
+  synapseEngine = new SynapseEngine(getUserDataPath());
+  console.log('🧠 Enhanced Synapse Engine v3.0 initialized');
+  
   setupUpdater();
   
   // GLOBAL SHORTCUT: Toggle Window
@@ -288,7 +296,124 @@ app.whenReady().then(() => {
   if (app.isPackaged) autoUpdater.checkForUpdatesAndNotify();
 
   // ==========================================
-  // IPC HANDLERS
+  // 🧠 ENHANCED SYNAPSE v3.0 IPC HANDLERS
+  // ==========================================
+
+  // Index content from any source
+  ipcMain.handle('synapse:index', async (e, source, type, content, metadata) => {
+    try {
+      const result = await synapseEngine.indexContent(source, type, content, metadata);
+      console.log(`📚 Indexed ${result.chunks.length} chunks from ${source}:${type}`);
+      return result;
+    } catch (error) {
+      console.error('Synapse index error:', error);
+      throw error;
+    }
+  });
+
+  // Search across all indexed content
+  ipcMain.handle('synapse:search', async (e, query, options) => {
+    try {
+      const results = await synapseEngine.search(query, options);
+      console.log(`🔍 Found ${results.length} results for: "${query.substring(0, 50)}"`);
+      return results;
+    } catch (error) {
+      console.error('Synapse search error:', error);
+      throw error;
+    }
+  });
+
+  // Get active context for AI (FIXED HANDLER NAME)
+  ipcMain.handle('synapse:getContext', async (e, query, currentSource) => {
+    try {
+      const context = await synapseEngine.getActiveContext(query, currentSource);
+      console.log(`🎯 Retrieved ${context.length} context items for ${currentSource}`);
+      return context;
+    } catch (error) {
+      console.error('Synapse context error:', error);
+      return [];
+    }
+  });
+
+  // Record user interaction (for ranking)
+  ipcMain.handle('synapse:recordInteraction', async (e, chunkId) => {
+    try {
+      synapseEngine.recordInteraction(chunkId);
+      return true;
+    } catch (error) {
+      console.error('Synapse interaction error:', error);
+      return false;
+    }
+  });
+
+  // Get smart suggestions based on history
+  ipcMain.handle('synapse:getSmartSuggestions', async (e, currentSource, recentTerms) => {
+    try {
+      const suggestions = await synapseEngine.getSmartSuggestions(currentSource, recentTerms);
+      console.log(`💡 Generated ${suggestions.length} smart suggestions`);
+      return suggestions;
+    } catch (error) {
+      console.error('Synapse suggestions error:', error);
+      return [];
+    }
+  });
+
+  // Get auto-linked sources
+  ipcMain.handle('synapse:getLinkedSources', async (e, sourceId) => {
+    try {
+      const links = synapseEngine.getLinkedSources(sourceId);
+      return links;
+    } catch (error) {
+      console.error('Synapse links error:', error);
+      return [];
+    }
+  });
+
+  // Delete indexed content
+  ipcMain.handle('synapse:delete', async (e, sourceId) => {
+    try {
+      await synapseEngine.deleteSource(sourceId);
+      console.log(`🗑️ Deleted source: ${sourceId}`);
+      return true;
+    } catch (error) {
+      console.error('Synapse delete error:', error);
+      throw error;
+    }
+  });
+
+  // Get statistics and analytics
+  ipcMain.handle('synapse:stats', async () => {
+    try {
+      const stats = synapseEngine.getStats();
+      return stats;
+    } catch (error) {
+      console.error('Synapse stats error:', error);
+      return {
+        totalChunks: 0,
+        totalLinks: 0,
+        sources: {},
+        topSearchTerms: [],
+        topAccessedContent: [],
+        cacheHitRate: 0,
+        diskUsage: 0
+      };
+    }
+  });
+
+  // Clear all indexed data
+  ipcMain.handle('synapse:clear', async () => {
+    try {
+      await synapseEngine.clear();
+      console.log('🧹 Synapse cleared');
+      return true;
+    } catch (error) {
+      console.error('Synapse clear error:', error);
+      throw error;
+    }
+  });
+
+  // ==========================================
+  // EXISTING IPC HANDLERS (ALL PRESERVED)
   // ==========================================
 
   // --- SETTINGS ---
@@ -324,6 +449,10 @@ app.whenReady().then(() => {
       await del(getSessionsPath()); 
       await del(getProjectsPath()); 
       await fs.promises.writeFile(getSettingsPath(), JSON.stringify(DEFAULT_SETTINGS)); 
+      
+      // 🧠 Clear Synapse
+      if (synapseEngine) await synapseEngine.clear();
+      
       return true; 
     } catch(e){ 
       return false; 
@@ -375,7 +504,7 @@ app.whenReady().then(() => {
     } 
   });
   
-  // --- FILE OPERATIONS (UPDATED FOR ZENITH) ---
+  // --- FILE OPERATIONS ---
   
   ipcMain.handle('system:save-file', async (e, { content, filename }) => { 
     const { filePath } = await dialog.showSaveDialog(mainWindow, { 
@@ -393,20 +522,28 @@ app.whenReady().then(() => {
     return false; 
   });
 
-  // UPDATED: Return boolean for success
   ipcMain.handle('system:save-generated-file', async (e, { content, filename }) => {
     try {
       const filePath = path.join(getGeneratedFilesPath(), filename);
       await fs.promises.writeFile(filePath, content, 'utf-8');
       console.log('✅ File saved:', filePath);
-      return true; // Return true for success
+      
+      // 🧠 AUTO-INDEX IN SYNAPSE
+      if (synapseEngine) {
+        await synapseEngine.indexContent('zenith', 'markdown', content, {
+          filename,
+          filePath,
+          action: 'save'
+        });
+      }
+      
+      return true;
     } catch (error) {
       console.error('❌ Save error:', error);
-      throw error; // Throw error so frontend can catch it
+      throw error;
     }
   });
 
-  // UPDATED: Return content directly
   ipcMain.handle('system:read-file', async (e, filename) => {
     try {
       const filePath = path.join(getGeneratedFilesPath(), filename);
@@ -416,14 +553,13 @@ app.whenReady().then(() => {
       }
       
       const content = await fs.promises.readFile(filePath, 'utf-8');
-      return content; // Return content directly, not wrapped
+      return content;
     } catch (error) {
       console.error('Read file error:', error);
-      throw error; // Throw error so frontend can catch it
+      throw error;
     }
   });
 
-  // NEW: List files in directory
   ipcMain.handle('system:list-files', async (e, directory) => {
     try {
       const targetDir = directory || getGeneratedFilesPath();
@@ -435,7 +571,6 @@ app.whenReady().then(() => {
       const fileList = [];
       
       for (const filename of files) {
-        // Skip metadata files, show only the actual content files
         if (filename.endsWith('.meta.json')) continue;
         
         const filePath = path.join(targetDir, filename);
@@ -457,7 +592,6 @@ app.whenReady().then(() => {
     }
   });
 
-  // NEW: Delete file handler
   ipcMain.handle('system:delete-file', async (e, filename) => {
     try {
       const filePath = path.join(getGeneratedFilesPath(), filename);
@@ -466,10 +600,8 @@ app.whenReady().then(() => {
         return { success: false, error: 'File not found' };
       }
       
-      // Delete the main file
       await fs.promises.unlink(filePath);
       
-      // Also delete metadata file if it exists
       const metaPath = `${filePath}.meta.json`;
       if (fs.existsSync(metaPath)) {
         await fs.promises.unlink(metaPath);
@@ -587,6 +719,23 @@ app.whenReady().then(() => {
       const n = r.filePaths.map(x => ({ path: x, name: path.basename(x), type: path.extname(x).substring(1) })); 
       d.files.push(...n.filter(f => !d.files.some(ex => ex.path === f.path))); 
       await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); 
+      
+      // 🧠 AUTO-INDEX FILES IN SYNAPSE
+      if (synapseEngine) {
+        for (const file of n) {
+          try {
+            const content = await fs.promises.readFile(file.path, 'utf-8');
+            await synapseEngine.indexContent('canvas', file.type, content, {
+              projectId,
+              filename: file.name,
+              filePath: file.path
+            });
+          } catch (err) {
+            console.warn('Could not index file:', file.name);
+          }
+        }
+      }
+      
       return d.files; 
     } 
     return null; 
@@ -622,6 +771,16 @@ app.whenReady().then(() => {
       const d = JSON.parse(await fs.promises.readFile(p, 'utf-8')); 
       d.files.push({ path: url, name: $('title').text() || url, type: 'url', cacheFile: filename }); 
       await fs.promises.writeFile(p, JSON.stringify(d, null, 2)); 
+      
+      // 🧠 AUTO-INDEX WEB CONTENT IN SYNAPSE
+      if (synapseEngine) {
+        await synapseEngine.indexContent('canvas', 'web', content, {
+          projectId,
+          url,
+          title: $('title').text() || url
+        });
+      }
+      
       return d.files; 
     } catch (e) { 
       throw new Error("Scrape Failed"); 
@@ -677,6 +836,23 @@ app.whenReady().then(() => {
       if(ex.title && ex.title!=="New Chat" && (!title||title==="New Chat")) t = ex.title; 
     } 
     await fs.promises.writeFile(p, JSON.stringify({ id, title:t||"New Chat", messages, date }, null, 2)); 
+    
+    // 🧠 AUTO-INDEX CHAT MESSAGES IN SYNAPSE
+    if (synapseEngine) {
+      const chatContent = messages
+        .filter(m => m.role === 'user')
+        .map(m => m.content)
+        .join('\n\n');
+      
+      if (chatContent.trim()) {
+        await synapseEngine.indexContent('chat', 'conversation', chatContent, {
+          sessionId: id,
+          title: t || "New Chat",
+          messageCount: messages.length
+        });
+      }
+    }
+    
     return true; 
   });
 
@@ -704,7 +880,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle('session:rename', async (e, { id, title }) => { 
     const p = path.join(getSessionsPath(), `${id}.json`); 
-    if(fs.existsExists(p)){ 
+    if(fs.existsSync(p)){ 
       const c = JSON.parse(await fs.promises.readFile(p,'utf-8')); 
       c.title = title; 
       await fs.promises.writeFile(p, JSON.stringify(c,null,2)); 
@@ -727,6 +903,24 @@ app.whenReady().then(() => {
   ipcMain.handle('calendar:save', async (e, events) => { 
     try { 
       await fs.promises.writeFile(getCalendarPath(), JSON.stringify(events, null, 2)); 
+      
+      // 🧠 AUTO-INDEX CALENDAR EVENTS IN SYNAPSE
+      if (synapseEngine && events.length > 0) {
+        const calendarContent = events
+          .map(event => `${event.title} - ${event.date}${event.notes ? ': ' + event.notes : ''}`)
+          .join('\n');
+        
+        if (calendarContent.trim()) {
+          await synapseEngine.indexContent('chronos', 'calendar', calendarContent, {
+            eventCount: events.length,
+            dateRange: {
+              start: events[0]?.date,
+              end: events[events.length - 1]?.date
+            }
+          });
+        }
+      }
+      
       return true; 
     } catch (e) { 
       return false; 
@@ -770,7 +964,7 @@ app.whenReady().then(() => {
     return d.rootPath ? await gitHandler.getDiff(d.rootPath) : ""; 
   });
 
-  // --- OLLAMA AI INTEGRATION ---
+  // --- OLLAMA AI INTEGRATION (🧠 ENHANCED WITH SYNAPSE v3.0) ---
   
   ipcMain.on('ollama:stream-prompt', async (event, { prompt, model, contextFiles, systemPrompt, settings, images, documentContext }) => { 
     const config = settings || DEFAULT_SETTINGS; 
@@ -790,20 +984,45 @@ app.whenReady().then(() => {
     
     const contextStr = await readProjectFiles(contextFiles || []); 
     
-    // Build full prompt with all context
+    // 🧠 SYNAPSE v3.0 ENHANCEMENT: Get intelligent context
+    let synapseContext = "";
+    if (synapseEngine && config.synapseEnabled) {
+      try {
+        const relevantChunks = await synapseEngine.getActiveContext(prompt, 'chat');
+        if (relevantChunks.length > 0) {
+          synapseContext = "\n\n=== RELEVANT CONTEXT FROM YOUR WORKSPACE ===\n";
+          relevantChunks.forEach((chunk, idx) => {
+            synapseContext += `\n[${idx + 1}] SOURCE: ${chunk.source.toUpperCase()} | ${chunk.metadata.filename || chunk.metadata.title || 'Context'}\n`;
+            synapseContext += `RELEVANCE: ${Math.round(chunk.relevance)}% | ${chunk.explanation}\n`;
+            synapseContext += `CONTENT: ${chunk.content}\n`;
+          });
+          synapseContext += "=== END CONTEXT ===\n\n";
+          console.log(`🧠 Enhanced prompt with ${relevantChunks.length} intelligent context chunks`);
+        }
+      } catch (err) {
+        console.error('Synapse context error:', err);
+      }
+    }
+    
+    // Build full prompt with all context layers
     let fullPrompt = prompt;
     
-    // Add document context if present
+    // Layer 1: Synapse intelligent context (highest priority)
+    if (synapseContext) {
+      fullPrompt = `${synapseContext}${fullPrompt}`;
+    }
+    
+    // Layer 2: Document context
     if (documentContext) {
       fullPrompt = `${documentContext}\n\n${fullPrompt}`;
     }
     
-    // Add project context
+    // Layer 3: Project files context
     if (contextStr) {
-      fullPrompt = `[CONTEXT START]\n${contextStr}\n[CONTEXT END]\n\n${fullPrompt}`;
+      fullPrompt = `[PROJECT CONTEXT START]\n${contextStr}\n[PROJECT CONTEXT END]\n\n${fullPrompt}`;
     }
     
-    const finalSystem = `${config.developerMode ? "You are OmniLab Forge, an expert engineer." : "You are OmniLab Nexus, a research assistant."}\n${systemPrompt || ""}`; 
+    const finalSystem = `${config.developerMode ? "You are Brainless Forge, an expert engineer." : "You are Brainless Nexus, a research assistant."}\n${systemPrompt || ""}`; 
     
     const req = net.request({ method: 'POST', url: `${baseUrl}/api/generate` }); 
     req.setHeader('Content-Type', 'application/json'); 
@@ -825,7 +1044,6 @@ app.whenReady().then(() => {
     
     req.on('error', (e) => mainWindow.webContents.send('ollama:error', "Connection Failed")); 
     
-    // Build request body - add images if present (for vision models)
     const requestBody = { 
       model: selectedModel, 
       prompt: `[SYSTEM] ${finalSystem}\n\n[USER] ${fullPrompt}`, 
@@ -836,7 +1054,6 @@ app.whenReady().then(() => {
       } 
     };
     
-    // Add images for vision models (llava, bakllava, etc.)
     if (images && images.length > 0) {
       requestBody.images = images;
     }

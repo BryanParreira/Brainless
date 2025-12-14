@@ -4,9 +4,12 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm'; 
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { ArrowUp, User, StopCircle, Download, Check, Info, Code2, Eye, Sparkles, Wifi, WifiOff, FlaskConical, PenTool, BrainCircuit, GraduationCap, ShieldAlert, Zap, BookOpen, Layers, GitBranch, Brain, Image as ImageIcon, File as FileIcon, X, Paperclip } from 'lucide-react';
+import { ArrowUp, User, StopCircle, Download, Check, Info, Code2, Eye, Sparkles, Wifi, WifiOff, FlaskConical, PenTool, BrainCircuit, GraduationCap, ShieldAlert, Zap, BookOpen, Layers, GitBranch, Brain, Image as ImageIcon, File as FileIcon, X, Paperclip, History, TrendingUp } from 'lucide-react';
 import clsx from 'clsx'; 
 import { LabBench } from './LabBench';
+import { ActiveContext } from './ActiveContext';
+import { ContextBreadcrumbs } from './ContextBreadcrumbs';
+import { AnimatePresence, motion } from 'framer-motion';
 
 const COMMAND_REGISTRY = {
   '/explain_simple': "Explain this simply for a beginner.",
@@ -19,20 +22,16 @@ const COMMAND_REGISTRY = {
   '/refactor': "Refactor this code to be cleaner."
 };
 
-// --- HOOK: Smooth Streaming ---
-// Controls the frame rate of the text update to ensure 60fps UI performance
 const useSmoothStream = (content, isStreaming) => {
   const [displayContent, setDisplayContent] = useState(content);
   const lastUpdateRef = useRef(Date.now());
 
   useEffect(() => {
-    // If not streaming, show immediate content
     if (!isStreaming) {
       setDisplayContent(content);
       return;
     }
 
-    // Throttling logic: Update only every ~30ms
     const now = Date.now();
     if (now - lastUpdateRef.current > 30) {
       setDisplayContent(content);
@@ -49,7 +48,6 @@ const useSmoothStream = (content, isStreaming) => {
   return displayContent;
 };
 
-// --- COMPONENT: Thinking Indicator ---
 const ThinkingIndicator = ({ theme }) => (
   <div className="flex items-center gap-3 py-1 pl-1 animate-in fade-in duration-300">
     <div className={`p-1.5 rounded-lg ${theme.softBg} border ${theme.primaryBorder} flex items-center justify-center`}>
@@ -68,7 +66,6 @@ const ThinkingIndicator = ({ theme }) => (
   </div>
 );
 
-// --- COMPONENT: Attachment Preview ---
 const AttachmentPreview = ({ file, onRemove }) => {
   const isImage = file.type.startsWith('image/');
   const [preview, setPreview] = useState(null);
@@ -116,7 +113,6 @@ const AttachmentPreview = ({ file, onRemove }) => {
   );
 };
 
-// Optimized CodeBlock with Memoization
 const CodeBlock = React.memo(({ language, children }) => {
   const { openLabBench, theme } = useLumina();
   const [isSaved, setIsSaved] = useState(false);
@@ -162,11 +158,88 @@ const Callout = ({ children, theme }) => (
   </div>
 );
 
-const MessageBubble = React.memo(({ msg, theme, fontSize, isStreaming }) => {
-  // 1. Use the smooth stream hook to buffer content updates
+// NEW: Context History Viewer
+const ContextHistoryViewer = ({ contexts, isOpen, onClose, theme }) => {
+  if (!isOpen || !contexts || contexts.length === 0) return null;
+  
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6"
+      onClick={onClose}
+    >
+      <div
+        className="bg-[#0A0A0A] border border-white/20 rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-6 border-b border-white/10">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-xl ${theme.softBg}`}>
+                <History size={20} className={theme.accentText} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Context Used in Last Response</h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  {contexts.length} sources • Showing what the AI referenced
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-white"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+        
+        <div className="p-6 overflow-y-auto max-h-[60vh] space-y-3 custom-scrollbar">
+          {contexts.map((ctx, idx) => (
+            <div
+              key={idx}
+              className="p-4 bg-white/5 rounded-xl border border-white/10 hover:bg-white/10 transition-colors"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs px-2 py-1 rounded ${theme.softBg} ${theme.accentText} font-bold uppercase`}>
+                    {ctx.source}
+                  </span>
+                  <span className="text-xs text-gray-600">
+                    {ctx.metadata.filename || ctx.metadata.title || 'Untitled'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 text-xs">
+                  <TrendingUp size={12} className="text-green-400" />
+                  <span className="text-green-400 font-bold">{Math.round(ctx.relevance)}%</span>
+                </div>
+              </div>
+              
+              <p className="text-sm text-gray-300 mb-3 leading-relaxed">
+                {ctx.content}
+              </p>
+              
+              {ctx.explanation && (
+                <div className="flex items-start gap-2 p-2 bg-black/30 rounded-lg">
+                  <Info size={12} className="text-blue-400 mt-0.5 flex-shrink-0" />
+                  <span className="text-[10px] text-gray-500">
+                    {ctx.explanation}
+                  </span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+const MessageBubble = React.memo(({ msg, theme, fontSize, isStreaming, contextUsed, onShowContext }) => {
   const smoothContent = useSmoothStream(msg.content, isStreaming);
 
-  // Remove <thinking> tags from content for display
   const mainContent = useMemo(() => {
     let content = smoothContent.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim();
     content = content.replace(/<thinking>[\s\S]*$/gi, '');
@@ -175,14 +248,11 @@ const MessageBubble = React.memo(({ msg, theme, fontSize, isStreaming }) => {
   
   const isUser = msg.role === 'user';
   
-  // Logic: Use RAW content for empty check to ensure responsiveness, but render smooth content
   const rawIsEmpty = !msg.content || msg.content.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim() === '';
   const showThinking = !isUser && isStreaming && rawIsEmpty;
 
-  // If empty and NOT thinking, don't render anything (prevents empty bubbles)
   if (rawIsEmpty && !showThinking) return null;
 
-  // 2. Memoize markdown components to prevent CodeBlock tearing down on every frame
   const markdownComponents = useMemo(() => ({
     code({node, inline, className, children, ...props}) { 
       const match = /language-(\w+)/.exec(className || ''); 
@@ -198,7 +268,6 @@ const MessageBubble = React.memo(({ msg, theme, fontSize, isStreaming }) => {
   return (
     <div className={clsx("flex gap-6 group animate-fade-in mb-8", isUser ? "flex-row-reverse" : "")}>
       
-      {/* Avatar */}
       <div className={clsx(
         "w-9 h-9 shrink-0 rounded-xl flex items-center justify-center shadow-lg border overflow-hidden", 
         isUser ? "bg-white text-black border-white" : `bg-gradient-to-br ${theme.gradient} text-white border-white/10`
@@ -210,9 +279,19 @@ const MessageBubble = React.memo(({ msg, theme, fontSize, isStreaming }) => {
         <div className={clsx("flex items-center gap-2 mb-2", isUser ? "justify-end" : "")}>
           <span className="text-xs font-semibold text-white/80">{isUser ? 'You' : 'Brainless'}</span>
           {!isUser && <span className={`text-[9px] ${theme.softBg} ${theme.accentText} px-1.5 py-0.5 rounded border border-white/10 uppercase tracking-wider font-bold`}>AI</span>}
+          
+          {/* NEW: Show context button */}
+          {!isUser && contextUsed && contextUsed.length > 0 && (
+            <button
+              onClick={onShowContext}
+              className="flex items-center gap-1 text-[9px] px-2 py-1 bg-white/5 hover:bg-white/10 rounded border border-white/10 text-gray-400 hover:text-white transition-colors"
+            >
+              <History size={10} />
+              <span>{contextUsed.length} sources</span>
+            </button>
+          )}
         </div>
         
-        {/* Only show attachments in the message history, NOT sent to AI again in UI */}
         {isUser && msg.attachments && msg.attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2 justify-end">
             {msg.attachments.map((att, idx) => (
@@ -235,13 +314,12 @@ const MessageBubble = React.memo(({ msg, theme, fontSize, isStreaming }) => {
 
         <div className={clsx("leading-7 font-light tracking-wide", isUser ? "bg-[#1A1A1A] inline-block p-4 rounded-3xl rounded-tr-sm text-white/90 border border-white/10 shadow-md" : "text-gray-300")} style={{ fontSize: `${fontSize}px` }}>
             
-            {/* RENDER LOGIC: Show Thinking OR Markdown */}
             {showThinking ? (
               <ThinkingIndicator theme={theme} />
             ) : (
               <Markdown 
                 remarkPlugins={[remarkGfm]} 
-                components={markdownComponents} // Use Memoized components
+                components={markdownComponents}
               >
                 {mainContent}
               </Markdown>
@@ -253,34 +331,27 @@ const MessageBubble = React.memo(({ msg, theme, fontSize, isStreaming }) => {
   );
 });
 
-// --- COMPONENT: QuickActions ---
 const QuickActions = ({ onAction, settings, theme, runFlashpoint, runBlueprint, messages, input }) => {
   const hasContext = messages.length > 0;
   const hasInput = input && input.trim().length > 0;
   
-  // Context-aware action handler
   const handleAction = useCallback((action) => {
-    // If action has custom handler, use it
     if (action.action) {
       action.action();
       return;
     }
     
-    // If action needs context and we don't have any, show helpful message
     if (action.needsContext && !hasContext && !hasInput) {
       onAction(`${action.cmd}\n\n(Please provide some context first - share code, text, or ask a question)`);
       return;
     }
     
-    // Build contextual prompt
     let finalPrompt = action.cmd;
     
-    // If we have input, append it to the command
     if (hasInput && action.appendInput) {
       finalPrompt = `${action.cmd}\n\nRegarding: ${input}`;
     }
     
-    // If action has a prefix for context, add it
     if (hasContext && action.contextPrefix) {
       finalPrompt = `${action.contextPrefix} ${action.cmd}`;
     }
@@ -377,18 +448,39 @@ const QuickActions = ({ onAction, settings, theme, runFlashpoint, runBlueprint, 
   );
 };
 
-// --- MAIN COMPONENT: Workspace ---
 export const Workspace = () => {
-  const { messages, sendMessage, isLoading, isOllamaRunning, settings, theme, activeArtifact, closeLabBench, runFlashpoint, runBlueprint } = useLumina();
+  const { 
+    messages, 
+    sendMessage, 
+    isLoading, 
+    isOllamaRunning, 
+    settings, 
+    theme, 
+    activeArtifact, 
+    closeLabBench, 
+    runFlashpoint, 
+    runBlueprint,
+    activeContextOpen,
+    setActiveContextOpen,
+    setCurrentInput,
+    handleContextNavigation
+  } = useLumina();
+  
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [activeContexts, setActiveContexts] = useState([]);
+  const [showContextHistory, setShowContextHistory] = useState(false);
+  const [messageContextMap, setMessageContextMap] = useState(new Map());
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const dropZoneRef = useRef(null);
 
-  // Optimized Scroll Logic: Instant ('auto') during generation to prevent wobbling, 'smooth' otherwise
+  useEffect(() => {
+    setCurrentInput(input);
+  }, [input, setCurrentInput]);
+
   useEffect(() => { 
     if (bottomRef.current) {
       bottomRef.current.scrollIntoView({ 
@@ -405,7 +497,6 @@ export const Workspace = () => {
     } 
   }, [input]);
 
-  // Handle file selection
   const handleFileSelect = useCallback((files) => {
     const newAttachments = Array.from(files).map(file => ({
       file,
@@ -416,7 +507,6 @@ export const Workspace = () => {
     setAttachments(prev => [...prev, ...newAttachments]);
   }, []);
 
-  // Handle drag and drop
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -446,29 +536,38 @@ export const Workspace = () => {
     setAttachments(prev => prev.filter((_, i) => i !== index));
   }, []);
 
-  // Send handling with attachment processing
   const handleSend = useCallback(async () => { 
     if (!input.trim() && attachments.length === 0) {
-      console.log('⚠️ Empty message, not sending');
       return;
     }
     
-    console.log('🚀 Workspace handleSend - attachments:', attachments.length);
+    let contexts = [];
+    if (window.lumina?.synapse && input.trim()) {
+      try {
+        contexts = await window.lumina.synapse.getContext(input, 'chat');
+        setActiveContexts(contexts);
+        
+        // Store context for this message
+        const messageIndex = messages.length;
+        setMessageContextMap(prev => new Map(prev).set(messageIndex + 1, contexts));
+        
+        setTimeout(() => setActiveContexts([]), 5000);
+      } catch (err) {
+        console.error('Context fetch error:', err);
+      }
+    }
     
     const finalPrompt = COMMAND_REGISTRY[input.trim()] || input;
     
-    // Process attachments - ONLY for THIS message
     let processedAttachments = [];
     
     if (attachments.length > 0) {
-      console.log('📎 Processing attachments...');
       processedAttachments = await Promise.all(
         attachments.map(async (att) => {
           if (att.file.type.startsWith('image/')) {
             return new Promise((resolve) => {
               const reader = new FileReader();
               reader.onloadend = () => {
-                console.log('✅ Image processed:', att.name);
                 resolve({
                   type: 'image',
                   name: att.name,
@@ -478,8 +577,6 @@ export const Workspace = () => {
               reader.readAsDataURL(att.file);
             });
           } else {
-            // For non-image files, pass as file object for now (or extract text if backend supports)
-            console.log('File attached:', att.name);
             return {
               type: 'file',
               name: att.name,
@@ -488,24 +585,13 @@ export const Workspace = () => {
           }
         })
       );
-      
-      console.log('✅ Processed attachments:', processedAttachments.length);
     }
-    
-    // CRITICAL: Send message with attachments ONLY for this turn
-    console.log('Calling sendMessage with:', { 
-      promptLength: finalPrompt.length, 
-      attachments: processedAttachments.length 
-    });
     
     sendMessage(finalPrompt, processedAttachments); 
     
-    // CRITICAL: Clear input and attachments IMMEDIATELY after sending
     setInput(""); 
     setAttachments([]);
-    
-    console.log('✅ Cleared input and attachments');
-  }, [input, attachments, sendMessage]);
+  }, [input, attachments, sendMessage, messages]);
 
   const handleKeyDown = useCallback((e) => { 
     if (e.key === 'Enter' && !e.shiftKey) { 
@@ -514,10 +600,8 @@ export const Workspace = () => {
     } 
   }, [handleSend]);
 
-  // Enhanced action handler that sets input
   const handleQuickAction = useCallback((prompt) => {
     setInput(prompt);
-    // Focus textarea after setting input
     setTimeout(() => {
       textareaRef.current?.focus();
     }, 0);
@@ -540,7 +624,6 @@ export const Workspace = () => {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Drag overlay */}
       {isDragging && (
         <div className="absolute inset-0 bg-blue-500/20 backdrop-blur-sm z-50 flex items-center justify-center border-4 border-dashed border-blue-500/50">
           <div className="text-center">
@@ -552,6 +635,18 @@ export const Workspace = () => {
       )}
 
       <div className="flex-1 flex flex-col min-w-0 relative h-full">
+        <button
+          onClick={() => setActiveContextOpen(!activeContextOpen)}
+          className={`absolute top-4 right-4 z-30 p-3 rounded-xl border transition-all ${
+            activeContextOpen 
+              ? `${theme.primaryBg} border-white/20 shadow-lg` 
+              : 'bg-[#0A0A0A]/80 border-white/10 hover:border-white/20'
+          } backdrop-blur-xl`}
+          title="Toggle Active Context (AI-Powered)"
+        >
+          <Brain size={18} className={activeContextOpen ? 'text-white' : theme.accentText} />
+        </button>
+
         <div className="flex-1 overflow-y-auto px-6 pb-40 custom-scrollbar scroll-smooth">
           <div className="max-w-4xl mx-auto space-y-10 pt-12">
             {messages.length === 0 && (
@@ -574,13 +669,37 @@ export const Workspace = () => {
                 </div>
               </div>
             )}
-            {messages.map((msg, idx) => <MessageBubble key={idx} msg={msg} theme={theme} fontSize={settings.fontSize} isStreaming={isLoading && idx === messages.length - 1} />)}
+            {messages.map((msg, idx) => (
+              <MessageBubble 
+                key={idx} 
+                msg={msg} 
+                theme={theme} 
+                fontSize={settings.fontSize} 
+                isStreaming={isLoading && idx === messages.length - 1}
+                contextUsed={messageContextMap.get(idx)}
+                onShowContext={() => {
+                  const contexts = messageContextMap.get(idx);
+                  if (contexts && contexts.length > 0) {
+                    setActiveContexts(contexts);
+                    setShowContextHistory(true);
+                  }
+                }}
+              />
+            ))}
             <div ref={bottomRef} />
           </div>
         </div>
         
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-[#000000] via-[#000000] to-transparent pt-20 pb-4">
           <div className="max-w-3xl mx-auto pointer-events-auto flex flex-col gap-3 px-6">
+            <AnimatePresence>
+              {activeContexts.length > 0 && (
+                <div className="flex justify-center">
+                  <ContextBreadcrumbs contexts={activeContexts} />
+                </div>
+              )}
+            </AnimatePresence>
+
             {!isLoading && messages.length > 0 && (
               <QuickActions 
                 onAction={handleQuickAction} 
@@ -593,7 +712,6 @@ export const Workspace = () => {
               />
             )}
             
-            {/* Attachments preview */}
             {attachments.length > 0 && (
               <div className="flex flex-wrap gap-2 px-4 py-2 bg-[#0A0A0A]/95 backdrop-blur-2xl border border-white/10 rounded-2xl">
                 {attachments.map((att, idx) => (
@@ -625,10 +743,30 @@ export const Workspace = () => {
               <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder={`Message ${settings.developerMode ? 'Forge' : 'Nexus'}...`} className="w-full bg-transparent border-none focus:ring-0 text-white placeholder-gray-500 text-sm resize-none max-h-32 min-h-[24px] py-3 px-4 custom-scrollbar font-medium outline-none" rows={1} />
               <button onClick={handleSend} disabled={isLoading || (!input.trim() && attachments.length === 0)} className={`mb-1 mr-1 p-2.5 rounded-full bg-white text-black ${theme.hoverBg} disabled:opacity-50 disabled:bg-gray-800 disabled:text-gray-600 transition-all shadow-lg shadow-white/5`}>{isLoading ? <StopCircle size={16} /> : <ArrowUp size={16} />}</button>
             </div>
-            <div className="text-center flex items-center justify-center gap-2 opacity-30 hover:opacity-100 transition-opacity duration-500"><div className={`w-2 h-2 rounded-full ${isLoading ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'}`}/><span className="text-[9px] text-gray-600 uppercase tracking-[0.2em] font-medium">Brainless {settings.developerMode ? 'Forge' : 'Nexus'} OS</span></div>
+            <div className="text-center flex items-center justify-center gap-2 opacity-30 hover:opacity-100 transition-opacity duration-500"><div className={`w-2 h-2 rounded-full ${isLoading ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'}`}/><span className="text-[9px] text-gray-600 uppercase tracking-[0.2em] font-medium">Brainless {settings.developerMode ? 'Forge' : 'Nexus'} • Enhanced Synapse v3.0</span></div>
           </div>
         </div>
       </div>
+
+      <ActiveContext
+        currentView="chat"
+        currentInput={input}
+        isOpen={activeContextOpen}
+        onClose={() => setActiveContextOpen(false)}
+        onNavigate={handleContextNavigation}
+      />
+
+      <AnimatePresence>
+        {showContextHistory && (
+          <ContextHistoryViewer
+            contexts={activeContexts}
+            isOpen={showContextHistory}
+            onClose={() => setShowContextHistory(false)}
+            theme={theme}
+          />
+        )}
+      </AnimatePresence>
+
       {activeArtifact && <LabBench artifacts={[activeArtifact]} onClose={closeLabBench} theme={theme} />}
     </div>
   );
