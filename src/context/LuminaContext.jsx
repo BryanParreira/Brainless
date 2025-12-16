@@ -181,8 +181,6 @@ export const LuminaProvider = ({ children }) => {
   }, [redoHistory]);
 
   const handleContextNavigation = useCallback((source, metadata) => {
-    console.log('🧭 Navigating to:', source, metadata);
-    
     switch (source) {
       case 'zenith':
         if (metadata.filename) setCurrentView('zenith');
@@ -506,7 +504,9 @@ export const LuminaProvider = ({ children }) => {
     }
   }, [synapseReady]);
 
-  // THIS IS THE MODIFIED SENDMESSAGE FUNCTION THAT ADDS LIVE CONTEXT
+  // =========================================================================
+  // 🚀 CORE AI MESSAGING (WITH SMART FILE CONTENT INJECTION)
+  // =========================================================================
   const sendMessage = useCallback(async (text, attachments) => {
     const normalizedAttachments = Array.isArray(attachments) ? attachments : [];
     
@@ -547,6 +547,7 @@ export const LuminaProvider = ({ children }) => {
     messagesDispatch({ type: 'ADD_ASSISTANT_MESSAGE' });
     setIsLoading(true);
 
+    // 1. Gather Active Project Files
     let contextFiles = [];
     let systemPrompt = settings.systemPrompt;
     let pid = null;
@@ -558,13 +559,42 @@ export const LuminaProvider = ({ children }) => {
       systemPrompt = liveProject?.systemPrompt || settings.systemPrompt;
     }
 
-    // --- LIVE SEARCH CONTEXT INJECTION ---
-    // We construct a summary of the current app state (Canvas & Calendar)
-    // regardless of whether it was indexed by Synapse.
+    // 2. LIVE APP STATE (GOD MODE)
     let liveStateContext = `\n[SYSTEM: LIVE APP STATE VISIBILITY]`;
     liveStateContext += `\nUser is currently viewing: ${currentView.toUpperCase()} page.`;
 
-    // 1. Inject Canvas Content if available
+    // 3. GLOBAL SMART FILE SEARCH (FIXED: Ignorning .meta files & forcing content read)
+    const mentionedFiles = [];
+    if (projects && projects.length > 0 && text) {
+      const lowerText = text.toLowerCase();
+      projects.forEach(proj => {
+        if (!proj.files) return;
+        proj.files.forEach(file => {
+          // Ignore metadata files or hidden files
+          if (file.name.endsWith('.meta.json') || file.name.startsWith('.')) return;
+
+          // Check if filename (minus extension) appears in the prompt
+          const baseName = file.name.replace(/\.[^/.]+$/, "").toLowerCase();
+          
+          // Match if name is in text (e.g. "demo" in "read demo file")
+          if ((baseName.length > 2 && lowerText.includes(baseName)) || lowerText === baseName) {
+             // Avoid duplicates if already in active project context
+             if (!contextFiles.some(cf => cf.path === file.path)) {
+               mentionedFiles.push(file);
+             }
+          }
+        });
+      });
+    }
+    
+    // Add found files to the context payload AND inject strict instructions
+    if (mentionedFiles.length > 0) {
+       contextFiles = [...contextFiles, ...mentionedFiles];
+       liveStateContext += `\n\n[SYSTEM INJECTION: I have automatically retrieved ${mentionedFiles.length} specific files referenced by the user. I have attached their FULL CONTENT below. You MUST use this content to answer the user's question directly. Do not say you cannot read files.]`;
+       mentionedFiles.forEach(f => liveStateContext += `\n- Retrieved File: ${f.name}`);
+    }
+
+    // 4. Inject Canvas Content (Nodes)
     if (canvasNodes && canvasNodes.length > 0) {
       liveStateContext += `\n\n[LIVE CANVAS CONTENT]:\nThe user has ${canvasNodes.length} items on their whiteboard (Canvas).`;
       canvasNodes.forEach(node => {
@@ -573,28 +603,36 @@ export const LuminaProvider = ({ children }) => {
       });
     }
 
-    // 2. Inject Calendar Events
+    // 5. Inject Chronos Content (Calendar Events)
     if (calendarEvents && calendarEvents.length > 0) {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      
       const upcoming = calendarEvents
-        .filter(e => new Date(e.date) >= new Date())
+        .filter(e => {
+          if (!e.date) return false;
+          const parts = e.date.split('-');
+          const eventDate = new Date(parts[0], parts[1] - 1, parts[2]);
+          return eventDate >= today;
+        })
         .sort((a, b) => new Date(a.date) - new Date(b.date))
-        .slice(0, 10);
+        .slice(0, 15);
       
       if (upcoming.length > 0) {
-        liveStateContext += `\n\n[LIVE CALENDAR SCHEDULE]:`;
+        liveStateContext += `\n\n[LIVE CHRONOS CALENDAR SCHEDULE]:`;
+        liveStateContext += `\n(Today is: ${now.toLocaleDateString()})`;
         upcoming.forEach(e => {
           liveStateContext += `\n- [${e.date} at ${e.time}] ${e.title} (${e.type}): ${e.notes || ''}`;
         });
       }
     }
 
-    // 3. Inject Active Project Info
+    // 6. Inject Zenith Content (Active Project Name)
     if (activeProject) {
-      liveStateContext += `\n\n[ACTIVE PROJECT]: ${activeProject.name}`;
+      liveStateContext += `\n\n[ACTIVE ZENITH PROJECT]: ${activeProject.name}`;
     }
     
     liveStateContext += `\n[END LIVE STATE]\n\n`;
-    // -------------------------------------
 
     let enrichedPrompt = text || '';
     
