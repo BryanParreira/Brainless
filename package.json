@@ -1,7 +1,7 @@
 {
   "name": "brainless",
   "private": true,
-  "version": "1.0.41",
+  "version": "1.0.42",
   "type": "module",
   "main": "electron/main.cjs",
   "description": "Advanced AI Research & Engineering Environment",
@@ -80,8 +80,8 @@
       "category": "public.app-category.productivity",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
+      "entitlements": "resources/entitlements.mac.plist",
+      "entitlementsInherit": "resources/entitlements.mac.plist",
       "notarize": {
         "teamId": "5PNLAR99PK"
       },
