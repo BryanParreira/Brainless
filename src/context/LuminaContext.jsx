@@ -472,142 +472,184 @@ export const LuminaProvider = ({ children }) => {
     // DUAL-MODE CONTEXT ENGINE
     // ====================================================================
     
-    const isForge = settings.developerMode;
-    let contextFiles = [];
-    let systemPrompt = settings.systemPrompt;
-    let pid = null;
-    let enrichedPrompt = text || '';
-    let workspaceContext = "";
-    
-    const lowerText = text.toLowerCase();
+    // ====================================================================
+// DUAL-MODE CONTEXT ENGINE - FIXED VERSION
+// ====================================================================
 
-    // ----------------------------------------------------------------
-    // MODE 1: THE FORGE (Developer Mode)
-    // ----------------------------------------------------------------
-    if (isForge) {
-      // 1. Prioritize Active Project
-      if (activeProject) {
-        pid = activeProject.id;
-        const liveProject = projects.find(p => p.id === activeProject.id);
-        
-        if (liveProject) {
-          contextFiles = (liveProject.files || []).filter(f => 
-            !f.name.endsWith('.meta.json') && !f.name.startsWith('.')
-          );
-          systemPrompt = liveProject.systemPrompt || settings.systemPrompt;
-          
-          workspaceContext += `[FORGE MODE: Project "${liveProject.name}" Active | ${contextFiles.length} files]\n`;
-          
-          // Try to get Git Status if possible
-          if (window.lumina.getGitStatus) {
-            try {
-              const status = await window.lumina.getGitStatus(activeProject.id);
-              if (status) {
-                workspaceContext += `[Git: ${status.current} | Modified: ${status.modified.length}]\n`;
-              }
-            } catch (e) {}
+const isForge = settings.developerMode;
+let contextFiles = [];
+let systemPrompt = settings.systemPrompt;
+let pid = null;
+let enrichedPrompt = text || '';
+let workspaceContext = "";
+
+const lowerText = text.toLowerCase();
+
+// ----------------------------------------------------------------
+// MODE 1: THE FORGE (Developer Mode)
+// ----------------------------------------------------------------
+if (isForge) {
+  // 1. Prioritize Active Project
+  if (activeProject) {
+    pid = activeProject.id;
+    const liveProject = projects.find(p => p.id === activeProject.id);
+    
+    if (liveProject) {
+      contextFiles = (liveProject.files || []).filter(f => 
+        !f.name.endsWith('.meta.json') && !f.name.startsWith('.')
+      );
+      systemPrompt = liveProject.systemPrompt || settings.systemPrompt;
+      
+      workspaceContext += `[ACTIVE PROJECT: "${liveProject.name}" | ${contextFiles.length} files loaded]\n`;
+      
+      // Git Status
+      if (window.lumina.getGitStatus) {
+        try {
+          const status = await window.lumina.getGitStatus(activeProject.id);
+          if (status) {
+            workspaceContext += `[Git: ${status.current} | Modified: ${status.modified.length}]\n`;
           }
+        } catch (e) {}
+      }
+    }
+  }
+
+  // 2. Canvas Context
+  if (canvasNodes.length > 0) {
+    workspaceContext += `\n[Canvas Architecture: ${canvasNodes.length} nodes]\n`;
+    canvasNodes.slice(0, 10).forEach(node => {
+      workspaceContext += `• ${node.data.title} (${node.type})\n`;
+    });
+  }
+  
+  // 3. Artifacts
+  if (artifacts.length > 0) {
+     workspaceContext += `\n[Open Artifacts]\n`;
+     artifacts.forEach(a => workspaceContext += `• ${a.title} (${a.language})\n`);
+  }
+} 
+// ----------------------------------------------------------------
+// MODE 2: THE NEXUS (Student/Research Mode) - FIXED
+// ----------------------------------------------------------------
+else {
+  // 1. Zenith Documents - Only if explicitly requested
+  if (lowerText.includes('document') || lowerText.includes('file') || lowerText.includes('zenith')) {
+    if (zenithFiles.length > 0) {
+      const recentFiles = zenithFiles
+        .sort((a, b) => new Date(b.modified) - new Date(a.modified))
+        .slice(0, 5);
+      
+      workspaceContext += `[Available Documents (${zenithFiles.length} total)]\n`;
+      
+      for (const file of recentFiles) {
+        try {
+          const content = await window.lumina.readFile(file.name);
+          const preview = content.slice(0, 500);
+          workspaceContext += `\n--- ${file.name} ---\n${preview}...\n`;
+        } catch (e) {
+          workspaceContext += `• ${file.name}\n`;
         }
       }
+    }
+  }
 
-      // 2. Canvas Context (Architecture/Diagrams)
-      if (canvasNodes.length > 0) {
-        workspaceContext += `\n[Canvas Architecture: ${canvasNodes.length} nodes]\n`;
-        canvasNodes.slice(0, 10).forEach(node => {
-          workspaceContext += `• ${node.data.title} (${node.type})\n`;
+  // 2. Calendar - FIXED: Always load if exists, make it directly accessible
+  if (calendarEvents.length > 0) {
+    // Check if user is asking about calendar/schedule/events
+    const isCalendarQuery = lowerText.includes('calendar') || 
+                           lowerText.includes('event') || 
+                           lowerText.includes('schedule') ||
+                           lowerText.includes('deadline') ||
+                           lowerText.includes('appointment');
+    
+    if (isCalendarQuery) {
+      // User is EXPLICITLY asking about calendar - provide full access
+      workspaceContext += `\n[YOUR CALENDAR EVENTS]\n`;
+      
+      const now = new Date();
+      const sorted = [...calendarEvents].sort((a, b) => 
+        new Date(a.date) - new Date(b.date)
+      );
+      
+      // Separate past and future
+      const upcoming = sorted.filter(e => new Date(e.date) >= now);
+      const past = sorted.filter(e => new Date(e.date) < now);
+      
+      if (upcoming.length > 0) {
+        workspaceContext += `\nUpcoming Events (${upcoming.length}):\n`;
+        upcoming.forEach(e => {
+          workspaceContext += `• ${e.date} at ${e.time || 'all day'}: ${e.title} [${e.priority} priority] (${e.type})\n`;
+          if (e.notes) workspaceContext += `  Notes: ${e.notes}\n`;
         });
       }
       
-      // 3. Artifacts (Code Snippets)
-      if (artifacts.length > 0) {
-         workspaceContext += `\n[Open Artifacts]\n`;
-         artifacts.forEach(a => workspaceContext += `• ${a.title} (${a.language})\n`);
+      if (past.length > 0 && lowerText.includes('past')) {
+        workspaceContext += `\nPast Events (${past.length}):\n`;
+        past.slice(-5).forEach(e => {
+          workspaceContext += `• ${e.date}: ${e.title}\n`;
+        });
       }
-
-      // 4. Force "Zenith" files to the background unless explicitly asked
-      if (lowerText.includes('documentation') || lowerText.includes('zenith')) {
-         // Load them only if requested
+      
+      if (upcoming.length === 0) {
+        workspaceContext += `\nYou have no upcoming events scheduled.\n`;
       }
-
-    } 
-    // ----------------------------------------------------------------
-    // MODE 2: THE NEXUS (Student/Research Mode)
-    // ----------------------------------------------------------------
-    else {
-      // 1. Prioritize Zenith (Documents/Writing)
-      if (zenithFiles.length > 0) {
-        // Always read the top 3 most recent files in Nexus mode
-        const recentFiles = zenithFiles
-          .sort((a, b) => new Date(b.modified) - new Date(a.modified))
-          .slice(0, 5);
-        
-        workspaceContext += `[NEXUS MODE: ${zenithFiles.length} Documents Available - Reference ONLY]\n`;
-        
-        for (const file of recentFiles) {
-          try {
-            const content = await window.lumina.readFile(file.name);
-            const preview = content.slice(0, 500); // Larger preview for students
-            workspaceContext += `\n--- DOC: ${file.name} ---\n${preview}\n...[cont]\n`;
-          } catch (e) {
-            workspaceContext += `• ${file.name}\n`;
-          }
-        }
-      }
-
-      // 2. Prioritize Calendar (Study Plans)
-      if (calendarEvents.length > 0) {
-        const now = new Date();
-        const upcoming = calendarEvents
-          .filter(e => new Date(e.date) >= now)
-          .sort((a, b) => new Date(a.date) - new Date(b.date))
-          .slice(0, 5);
-        
-        if (upcoming.length > 0) {
-          // IMPORTANT: Labeled as Reference Only so the AI doesn't "hallucinate" that the user gave it this info.
-          workspaceContext += `\n[SYSTEM DATA: Calendar/Deadlines - Reference Only (Use implicitly, do not list unless asked)]\n`;
-          upcoming.forEach(e => {
-            workspaceContext += `• ${e.date}: ${e.title} (${e.priority})\n`;
-          });
-        }
-      }
-
-      // 3. IGNORE Code Projects unless forced
-      // In Nexus mode, we do NOT automatically load the active project context
-      // to avoid confusing the LLM with code when the user wants to write an essay.
-      if (activeProject && (lowerText.includes('code') || lowerText.includes('project'))) {
-         workspaceContext += `\n[Note: Active Project "${activeProject.name}" available but not loaded by default in Nexus]\n`;
+    } else {
+      // User is NOT asking about calendar, but we'll keep a subtle context
+      const now = new Date();
+      const urgent = calendarEvents
+        .filter(e => {
+          const eventDate = new Date(e.date);
+          const daysUntil = (eventDate - now) / (1000 * 60 * 60 * 24);
+          return daysUntil >= 0 && daysUntil <= 7 && e.priority === 'high';
+        })
+        .slice(0, 3);
+      
+      if (urgent.length > 0) {
+        workspaceContext += `\n[Note: You have ${urgent.length} urgent deadline(s) this week]\n`;
       }
     }
+  }
 
-    // === COMMON CONTEXT ===
-    if (workspaceContext) {
-      enrichedPrompt = workspaceContext + '\n\n' + enrichedPrompt;
-    }
-    
-    // Conversation Memory
-    if (messages.length > 0) {
-      const recentHistory = messages.slice(-5).map(msg => 
-        `${msg.role === 'user' ? 'User' : 'AI'}: ${msg.content.slice(0, 300)}`
-      ).join('\n');
-      enrichedPrompt = `[Conversation History]\n${recentHistory}\n\n${enrichedPrompt}`;
-    }
+  // 3. IGNORE Code Projects unless explicitly requested
+  if (activeProject && (lowerText.includes('code') || lowerText.includes('project'))) {
+     workspaceContext += `\n[Note: Project "${activeProject.name}" available on request]\n`;
+  }
+}
 
-    // === 🎯 PERSONALITY & GUARDRAILS ===
-    const isDev = settings.developerMode;
-    const tonePrompt = isDev 
-        ? `YOU ARE "FORGE": A sharp, efficient, collaborative senior engineer. Be precise, technical, but polite.` 
-        : `YOU ARE "NEXUS": A warm, encouraging, insightful research partner. Be helpful, clear, and engaging.`;
+// === CONVERSATION MEMORY ===
+if (messages.length > 0) {
+  const recentHistory = messages.slice(-6).map(msg => 
+    `${msg.role === 'user' ? 'USER' : 'ASSISTANT'}: ${msg.content.slice(0, 400)}`
+  ).join('\n\n');
+  enrichedPrompt = `[CONVERSATION HISTORY]\n${recentHistory}\n\n[CURRENT QUERY]\n${enrichedPrompt}`;
+}
 
-    const antiHallucinationPrompt = `
-    INSTRUCTIONS:
-    - ${tonePrompt}
-    - Information labeled [SYSTEM DATA], [NEXUS MODE], or [FORGE MODE] is BACKGROUND CONTEXT.
-    - Use this background data to be helpful, but do NOT recite it back unless it's relevant to the user's question.
-    - If the user says "hello", respond warmly.
-    - Be professional, polite, and helpful.
-    `;
-    
-    enrichedPrompt = antiHallucinationPrompt + "\n" + enrichedPrompt;
+// === WORKSPACE CONTEXT ===
+if (workspaceContext) {
+  enrichedPrompt = workspaceContext + '\n' + enrichedPrompt;
+}
+
+// === PERSONALITY & GUARDRAILS - FIXED ===
+const isDev = settings.developerMode;
+const tonePrompt = isDev 
+    ? `You are FORGE: A precise, technical senior engineer. Answer directly and accurately.` 
+    : `You are NEXUS: A warm, helpful research assistant. Answer questions directly using available data.`;
+
+const systemInstructions = `
+${tonePrompt}
+
+CRITICAL INSTRUCTIONS:
+1. Answer questions DIRECTLY using the provided context
+2. If calendar data is shown, USE IT to answer calendar questions
+3. If documents are shown, USE THEM to answer document questions
+4. DO NOT say "I don't have access" if the data is clearly in the context
+5. Be concise and accurate
+6. Only say you don't have information if it's genuinely not provided
+
+Context data above is YOUR WORKING MEMORY - use it naturally.
+`;
+
+enrichedPrompt = systemInstructions + "\n\n" + enrichedPrompt;
     
     // === SEND TO AI ===
     try {
