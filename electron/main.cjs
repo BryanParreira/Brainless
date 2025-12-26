@@ -96,15 +96,23 @@ function setupUpdater() {
     autoUpdater.checkForUpdates();
   });
 
+  // Find this section in main.js inside function setupUpdater()
+  
   ipcMain.on('download-update', async () => {
+    console.log("⬇️ [Main Process] UI requested download..."); // Shows in your Terminal
+    
     try {
       log.info("User requested download...");
       await autoUpdater.downloadUpdate();
+      console.log("✅ [Main Process] Download started successfully.");
     } catch (err) {
+      console.error("❌ [Main Process] Download failed:", err); // Shows real error in Terminal
       log.error("Download Error:", err);
+      
+      // Send the REAL error to the UI
       mainWindow?.webContents.send('update-message', { 
         status: 'error', 
-        text: 'Download failed. Check internet.' 
+        text: `Error: ${err.message}` 
       });
     }
   });
